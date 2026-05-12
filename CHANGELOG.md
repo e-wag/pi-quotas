@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Fixed
+- Pi startup and turn handling no longer wait for footer quota refreshes or quota warning checks; remote quota requests now run in the background.
+
 ## [0.2.4] - 2026-05-06
 
 ### Added
