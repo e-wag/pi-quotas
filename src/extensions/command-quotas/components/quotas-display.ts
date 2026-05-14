@@ -2,6 +2,7 @@ import type { Theme } from "@mariozechner/pi-coding-agent";
 import { DynamicBorder } from "@mariozechner/pi-coding-agent";
 import type { Component } from "@mariozechner/pi-tui";
 import { Loader, matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
+import pkg from "../../../../package.json" with { type: "json" };
 import { PROVIDER_LABELS } from "../../../lib/quotas.js";
 import type { QuotasResult, SupportedQuotaProvider } from "../../../types/quotas.js";
 import {
@@ -19,10 +20,6 @@ type QuotasState =
   | { type: "loading" }
   | { type: "loaded"; snapshots: Snapshot[] };
 
-function fgAnsiToBg(fgAnsi: string): string {
-  return fgAnsi.split("[38;").join("[48;").replace(/\[3([0-9])m/g, "[4$1m");
-}
-
 function renderProgressBar(
   percent: number,
   width: number,
@@ -33,6 +30,7 @@ function renderProgressBar(
   const clamped = Math.max(0, Math.min(100, Math.round(percent)));
   const filled = Math.round((clamped / 100) * width);
   const showPace =
+    percent > 0 &&
     pacePercent !== null &&
     pacePercent !== undefined &&
     pacePercent >= 5 &&
@@ -44,11 +42,10 @@ function renderProgressBar(
   const parts: string[] = [];
   for (let idx = 0; idx < width; idx++) {
     if (paceIndex !== null && idx === paceIndex) {
-      const markerColor = idx < filled ? "accent" : fillColor;
       if (idx < filled) {
-        parts.push(`${fgAnsiToBg(theme.getFgAnsi(fillColor))}${theme.getFgAnsi(markerColor)}|${reset}`);
+        parts.push(theme.fg(fillColor, "█"));
       } else {
-        parts.push(theme.fg(markerColor, "|"));
+        parts.push(theme.fg(fillColor, "|"));
       }
     } else if (idx < filled) {
       parts.push(theme.fg(fillColor, "█"));
@@ -123,7 +120,7 @@ export class QuotasComponent implements Component {
     }
 
     lines.push("");
-    lines.push(this.theme.fg("dim", "  r to refresh  q/Esc to close"));
+    lines.push(this.theme.fg("dim", `  pi-quotas v${pkg.version}  ·  r to refresh  q/Esc to close`));
     lines.push(...border.render(width));
     return lines;
   }

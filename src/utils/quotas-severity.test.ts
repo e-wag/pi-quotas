@@ -74,13 +74,33 @@ describe("assessWindow", () => {
     expect(assessWindow(w).severity).toBe("critical");
   });
 
+  it("warns for pace-aware windows once absolute usage reaches 80%", () => {
+    const now = Date.now();
+    const monthSeconds = 31 * 24 * 3600;
+    const w = makeWindow({
+      provider: "github-copilot",
+      label: "Premium / month",
+      usedPercent: 83,
+      usedValue: 249,
+      limitValue: 300,
+      showPace: true,
+      windowSeconds: monthSeconds,
+      // Screenshot repro: 51/300 left with reset in about 428h35m in a 31-day
+      // monthly window. Dynamic pace alone projects just under warning, but
+      // only 17% remains, so low-quota color should still be amber.
+      resetsAt: new Date(now + ((428 * 60 + 35) * 60 * 1000)),
+    });
+
+    expect(assessWindow(w).severity).toBe("warning");
+  });
+
   it("returns warning when projected exceeds dynamic warn threshold", () => {
     const w = makeWindow({
-      usedPercent: 95,
+      usedPercent: 79,
       showPace: true,
       paceScale: 1,
       windowSeconds: 3600,
-      resetsAt: new Date(Date.now() + 1800 * 1000),
+      resetsAt: new Date(Date.now() + 2520 * 1000),
     });
     expect(assessWindow(w).severity).toBe("warning");
   });
