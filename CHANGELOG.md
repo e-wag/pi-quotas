@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.2.6] - 2026-05-14
 
 ### Added
 - Quotas dashboard footer now shows the running `pi-quotas` package version.

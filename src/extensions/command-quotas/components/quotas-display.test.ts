@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import pkg from "../../../../package.json" with { type: "json" };
 import { QuotasComponent } from "./quotas-display.js";
 
 const ansi = {
@@ -34,7 +35,7 @@ describe("QuotasComponent", () => {
     const component = makeComponent();
     component.setState({ type: "loaded", snapshots: [] });
 
-    expect(component.render(70).join("\n")).toContain("pi-quotas v0.2.5");
+    expect(component.render(70).join("\n")).toContain(`pi-quotas v${pkg.version}`);
   });
 
   it("does not render an accent-colored pace marker inside filled warning bars", () => {
