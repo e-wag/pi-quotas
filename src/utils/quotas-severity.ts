@@ -53,11 +53,24 @@ export function getProjectedPercent(
   return Math.max(0, (usedPercent / effectivePace) * 100);
 }
 
+function absoluteUsageSeverity(window: QuotaWindow, percent: number): RiskSeverity {
+  if (window.limited || percent >= 100) return "critical";
+  if (percent >= 90) return "high";
+  if (percent >= 80) return "warning";
+  return "none";
+}
+
+function maxSeverity(a: RiskSeverity, b: RiskSeverity): RiskSeverity {
+  const order: RiskSeverity[] = ["none", "warning", "high", "critical"];
+  return order[Math.max(order.indexOf(a), order.indexOf(b))] ?? "none";
+}
+
 export function assessWindow(window: QuotaWindow): RiskAssessment {
   const rawPace = window.showPace ? getPacePercent(window) : null;
   const pacePercent =
     rawPace !== null ? rawPace * (window.paceScale ?? 1) : null;
   const projectedPercent = getProjectedPercent(window.usedPercent, pacePercent);
+  const absoluteSeverity = absoluteUsageSeverity(window, window.usedPercent);
 
   let progress: number | null = null;
   if (pacePercent !== null) progress = pacePercent / 100;
@@ -70,10 +83,7 @@ export function assessWindow(window: QuotaWindow): RiskAssessment {
   };
 
   if (progress === null) {
-    let severity: RiskSeverity = "none";
-    if (window.limited || projectedPercent >= 100) severity = "critical";
-    else if (projectedPercent >= 90) severity = "high";
-    else if (projectedPercent >= 80) severity = "warning";
+    const severity = absoluteUsageSeverity(window, projectedPercent);
 
     return {
       ...base,
@@ -121,7 +131,7 @@ export function assessWindow(window: QuotaWindow): RiskAssessment {
     warnProjectedPercent,
     highProjectedPercent,
     criticalProjectedPercent,
-    severity,
+    severity: maxSeverity(severity, absoluteSeverity),
   };
 }
 

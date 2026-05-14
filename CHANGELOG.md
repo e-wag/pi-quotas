@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Quotas dashboard footer now shows the running `pi-quotas` package version.
+- Dashboard render tests cover version display and pace-marker edge cases.
+
+### Fixed
+- Pace-aware quota windows now still switch to warning/high/critical colors at absolute 80%/90%/100% usage thresholds, preventing high-usage monthly quotas from staying green.
+- Quotas dashboard progress bars no longer show stray accent-colored pace markers inside filled warning bars or on zero-usage bars.
+
 ## [0.2.5] - 2026-05-14
 
 ### Fixed
