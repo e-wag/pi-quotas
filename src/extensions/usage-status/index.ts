@@ -176,6 +176,12 @@ export default async function (pi: ExtensionAPI) {
     }
   });
 
+  function scheduleRefresh(ctx: ExtensionContext): void {
+    void refresher.refreshFor(ctx).catch(() => {
+      if (ctx.hasUI) ctx.ui.setStatus(EXTENSION_ID, ctx.ui.theme.fg("warning", "usage unavailable"));
+    });
+  }
+
   pi.events.on(QUOTAS_CONFIG_UPDATED_EVENT, (data: unknown) => {
     const config = (data as QuotasConfigUpdatedPayload).config;
     enabled = config.usageStatus;
@@ -186,7 +192,7 @@ export default async function (pi: ExtensionAPI) {
     }
     if (currentContext) {
       refresher.start();
-      void refresher.refreshFor(currentContext);
+      scheduleRefresh(currentContext);
     }
   });
 
@@ -198,7 +204,7 @@ export default async function (pi: ExtensionAPI) {
     return deferToSynthetic && syntheticUsageActive && provider === "synthetic";
   }
 
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", (_event, ctx) => {
     currentContext = ctx;
     if (!enabled) return;
     if (shouldDeferToSynthetic(ctx.model?.provider)) {
@@ -206,17 +212,17 @@ export default async function (pi: ExtensionAPI) {
       return;
     }
     refresher.start();
-    await refresher.refreshFor(ctx);
+    scheduleRefresh(ctx);
   });
 
-  pi.on("turn_end", async (_event, ctx) => {
+  pi.on("turn_end", (_event, ctx) => {
     currentContext = ctx;
     if (!enabled) return;
     if (shouldDeferToSynthetic(ctx.model?.provider)) return;
-    await refresher.refreshFor(ctx);
+    scheduleRefresh(ctx);
   });
 
-  pi.on("model_select", async (_event, ctx) => {
+  pi.on("model_select", (_event, ctx) => {
     currentContext = ctx;
     if (!enabled) {
       refresher.stop(ctx);
@@ -226,7 +232,7 @@ export default async function (pi: ExtensionAPI) {
       ctx.ui.setStatus(EXTENSION_ID, undefined);
       return;
     }
-    await refresher.refreshFor(ctx);
+    scheduleRefresh(ctx);
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {

@@ -85,6 +85,12 @@ export default async function (pi: ExtensionAPI) {
     ctx.ui.notify(`${providerName} quota warning:\n${lines.join("\n")}`, level);
   }
 
+  function scheduleCheck(ctx: ExtensionContext, onlyNew: boolean): void {
+    void check(ctx, onlyNew).catch(() => {
+      // Quota warnings are opportunistic; never let a failed quota check block Pi events.
+    });
+  }
+
   pi.events.on(QUOTAS_CONFIG_UPDATED_EVENT, (data: unknown) => {
     enabled = (data as QuotasConfigUpdatedPayload).config.quotaWarnings;
     if (!enabled) {
@@ -93,21 +99,21 @@ export default async function (pi: ExtensionAPI) {
     }
     if (currentContext) {
       clearAlertState();
-      void check(currentContext, false);
+      scheduleCheck(currentContext, false);
     }
   });
 
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", (_event, ctx) => {
     currentContext = ctx;
     clearAlertState();
     if (!enabled) return;
-    await check(ctx, false);
+    scheduleCheck(ctx, false);
   });
 
-  pi.on("turn_end", async (_event, ctx) => {
+  pi.on("turn_end", (_event, ctx) => {
     currentContext = ctx;
     if (!enabled) return;
-    await check(ctx, true);
+    scheduleCheck(ctx, true);
   });
 
   pi.on("model_select", async (_event, ctx) => {
