@@ -133,7 +133,7 @@ describe("formatWindowStatus", () => {
 
       const result = formatStatus({ ui: { theme } } as any, [status]);
 
-      expect(result).toContain("(↺in 2h19m)");
+      expect(result).toContain(provider === "github-copilot" ? "(↺2h19m)" : "(↺in 2h19m)");
       expect(result).not.toContain("(↺in 3h)");
     }
   });

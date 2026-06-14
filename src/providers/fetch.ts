@@ -1,7 +1,8 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import type { AuthStorage } from "@mariozechner/pi-coding-agent";
 import type { QuotasResult, SupportedQuotaProvider } from "../types/quotas.js";
 import {
@@ -12,9 +13,89 @@ import {
   parseSyntheticUsage,
 } from "./providers.js";
 
+const execFileAsync = promisify(execFile);
 const FETCH_TIMEOUT_MS = 15_000;
+const MAX_BUFFER = 1024 * 1024;
 const COPILOT_VERSION = "0.35.0";
 const EDITOR_VERSION = "vscode/1.107.0";
+const DEFAULT_GITHUB_HOST = "github.com";
+
+type CopilotTarget = { host: string };
+
+type GhAuthAccount = {
+  state?: string;
+  active?: boolean;
+  host?: string;
+  scopes?: string;
+};
+
+type GhAuthStatus = {
+  hosts?: Record<string, GhAuthAccount[]>;
+};
+
+function normalizeHost(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    if (trimmed.includes("://")) return new URL(trimmed).hostname.toLowerCase();
+    return new URL(`https://${trimmed}`).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+function targetsFromGhAuthStatus(status: GhAuthStatus): CopilotTarget[] {
+  const seen = new Set<string>();
+  const targets: CopilotTarget[] = [];
+
+  for (const [host, accounts] of Object.entries(status.hosts ?? {})) {
+    const active = accounts.find((account) => account.active && account.state === "success")
+      ?? accounts.find((account) => account.state === "success");
+    if (!active) continue;
+
+    const normalized = normalizeHost(active.host ?? host);
+    if (!normalized || seen.has(normalized)) continue;
+
+    const scopes = active.scopes?.split(",").map((scope) => scope.trim().toLowerCase()) ?? [];
+    const isLikelyCopilotHost = normalized === DEFAULT_GITHUB_HOST || scopes.includes("copilot");
+    if (!isLikelyCopilotHost) continue;
+
+    seen.add(normalized);
+    targets.push({ host: normalized });
+  }
+
+  return targets;
+}
+
+async function discoverCopilotTargets(): Promise<CopilotTarget[]> {
+  try {
+    const result = await execFileAsync(
+      "gh",
+      ["auth", "status", "--json", "hosts", "--active"],
+      { timeout: FETCH_TIMEOUT_MS, maxBuffer: MAX_BUFFER, encoding: "utf8" },
+    );
+    const discovered = targetsFromGhAuthStatus(JSON.parse(result.stdout) as GhAuthStatus);
+    return discovered.length > 0 ? discovered : [{ host: DEFAULT_GITHUB_HOST }];
+  } catch {
+    return [{ host: DEFAULT_GITHUB_HOST }];
+  }
+}
+
+async function fetchCopilotUsageForTarget(target: CopilotTarget, signal?: AbortSignal): Promise<QuotasResult> {
+  try {
+    const result = await execFileAsync(
+      "gh",
+      ["api", "--hostname", target.host, "/copilot_internal/user"],
+      { signal, timeout: FETCH_TIMEOUT_MS, maxBuffer: MAX_BUFFER, encoding: "utf8" },
+    );
+    return success("github-copilot", parseGitHubCopilotUsage(JSON.parse(result.stdout), target.host));
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "AbortError") return failure("Request cancelled", "cancelled");
+    const anyErr = err as { code?: unknown };
+    if (anyErr?.code === "ENOENT") return failure("GitHub CLI not found", "config");
+    return failure("GitHub Copilot quota request failed", "http");
+  }
+}
 
 function isTimeoutReason(reason: unknown): boolean {
   return (
@@ -257,25 +338,16 @@ export async function fetchCodexQuotas(
 }
 
 export async function fetchGitHubCopilotQuotas(
-  authStorage: AuthStorage,
+  _authStorage: AuthStorage,
   signal?: AbortSignal,
 ): Promise<QuotasResult> {
-  const oauthResult = await fetchGitHubCopilotQuotasWithGitHubToken(
-    githubOAuthToken(authStorage),
-    signal,
-  );
-  if (
-    oauthResult.success ||
-    oauthResult.error.kind === "cancelled" ||
-    oauthResult.error.kind === "timeout"
-  ) {
-    return oauthResult;
+  const targets = await discoverCopilotTargets();
+  const results = await Promise.all(targets.map((target) => fetchCopilotUsageForTarget(target, signal)));
+  const successes = results.filter((result): result is Extract<QuotasResult, { success: true }> => result.success);
+  if (successes.length > 0) {
+    return success("github-copilot", successes.flatMap((result) => result.data.windows));
   }
-
-  return fetchGitHubCopilotQuotasWithToken(
-    await providerAccessToken(authStorage, "github-copilot"),
-    signal,
-  );
+  return results[0] ?? failure("No GitHub Copilot hosts found", "config");
 }
 
 export async function fetchOpenRouterQuotasWithToken(

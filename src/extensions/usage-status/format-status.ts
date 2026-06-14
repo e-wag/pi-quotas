@@ -1,7 +1,9 @@
+import type { SupportedQuotaProvider } from "../../types/quotas.js";
 import type { RiskSeverity } from "../../utils/quotas-severity.js";
 import { getSeverityColor } from "../../utils/quotas-severity.js";
 
 export type WindowStatus = {
+  provider?: SupportedQuotaProvider;
   label: string;
   usedPercent: number;
   severity: RiskSeverity;
@@ -48,6 +50,14 @@ const SHORT_LABELS: Record<string, string> = {
  * Returns true when a window has a real used/limit pair
  * (e.g. 293/300 premium requests) rather than just a percentage.
  */
+function formatCompactNumber(value: number): string {
+  if (!Number.isFinite(value)) return "0";
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}m`;
+  if (abs >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return value.toLocaleString("en-US", { maximumFractionDigits: value % 1 === 0 ? 0 : 1 });
+}
+
 function hasRealCounts(w: WindowStatus): boolean {
   if (w.limitValue == null || w.usedValue == null) return false;
   // Percentage-only windows store limitValue=100 and usedValue=usedPercent
@@ -65,6 +75,13 @@ function hasRealCounts(w: WindowStatus): boolean {
  * - Uses "REACHED" / "OK" for spend cap
  */
 export function formatWindowStatus(theme: ThemeLike, w: WindowStatus): string {
+  if (w.provider === "github-copilot" && hasRealCounts(w)) {
+    const remaining = Math.max(0, w.limitValue! - w.usedValue!);
+    const remainingPercent = Math.max(0, Math.min(100, Math.round(100 - w.usedPercent)));
+    const color = getSeverityColor(w.severity);
+    return `${theme.fg(color, `Copilot ${remainingPercent}%`)}${theme.fg("dim", ` ${formatCompactNumber(remaining)}/`)}${theme.fg(color, formatCompactNumber(w.limitValue!))}`;
+  }
+
   const short = SHORT_LABELS[w.label] ?? w.label;
   const color = getSeverityColor(w.severity);
 

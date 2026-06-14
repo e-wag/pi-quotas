@@ -138,42 +138,33 @@ describe("fetchGitHubCopilotQuotasWithToken", () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("uses the stored GitHub OAuth refresh token for Pi 0.74 Copilot quota checks", async () => {
-    const auth = AuthStorage.inMemory({
-      "github-copilot": {
-        type: "oauth",
-        refresh: "ghu-refresh-token",
-        access: "tid=abc;proxy-ep=proxy.individual.githubcopilot.com;exp=1778611280",
-        expires: Date.now() + 60_000,
-      },
-    });
-
-    globalThis.fetch = vi.fn(async (_url, init) => {
-      const authorization = new Headers(init?.headers).get("authorization");
-      if (authorization === "Bearer ghu-refresh-token") {
-        return new Response(
+  it("ignores legacy chat and completions buckets when using stored tokens", async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ token: "copilot-token" }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
           JSON.stringify({
             quota_reset_date: "2026-05-01T00:00:00Z",
             quota_snapshots: {
-              premium_interactions: { entitlement: 300, remaining: 210 },
+              chat: { entitlement: 1000, remaining: 950 },
+              completions: { entitlement: 4000, remaining: 4000 },
             },
           }),
           { status: 200 },
-        );
-      }
-      return new Response(JSON.stringify({ message: "Bad credentials" }), { status: 401 });
-    }) as any;
+        ),
+      ) as any;
 
-    const result = await fetchGitHubCopilotQuotas(auth);
+    const result = await fetchGitHubCopilotQuotasWithToken("gh-token");
 
     expect(result.success).toBe(true);
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "https://api.github.com/copilot_internal/user",
-      expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: "Bearer ghu-refresh-token" }),
-      }),
-    );
+    if (result.success) {
+      expect(result.data.provider).toBe("github-copilot");
+      expect(result.data.windows).toEqual([]);
+    }
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
 });
 

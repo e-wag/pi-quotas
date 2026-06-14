@@ -29,9 +29,34 @@ import { formatWindowStatus, type WindowStatus } from "./format-status.js";
 const EXTENSION_ID = "pi-quotas-usage";
 const REFRESH_INTERVAL_MS = 60_000;
 
-function formatFooterResetTime(resetsAt: string): string {
+function formatCopilotResetTime(resetsAt: string): string {
+  const ms = new Date(resetsAt).getTime() - Date.now();
+  if (ms <= 0) return "now";
+  const totalMins = Math.ceil(ms / (1000 * 60));
+  const hours = Math.floor(totalMins / 60);
+  const mins = totalMins % 60;
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24);
+    const remHours = hours % 24;
+    return remHours > 0 ? `${days}d${remHours}h` : `${days}d`;
+  }
+  if (hours >= 1) return mins > 0 ? `${hours}h${mins}m` : `${hours}h`;
+  return `${totalMins}m`;
+}
+
+function formatFooterResetTime(resetsAt: string, provider?: string): string {
+  if (provider === "github-copilot") return formatCopilotResetTime(resetsAt);
   const remaining = formatTimeRemaining(new Date(resetsAt));
   return remaining === "now" ? "now" : `in ${remaining}`;
+}
+
+function assessStatusSeverity(window: QuotaWindow): ReturnType<typeof assessWindow>["severity"] {
+  if (window.provider !== "github-copilot") return assessWindow(window).severity;
+  const remainingPercent = Math.max(0, Math.min(100, 100 - window.usedPercent));
+  if (remainingPercent <= 5) return "critical";
+  if (remainingPercent <= 10) return "high";
+  if (remainingPercent <= 20) return "warning";
+  return "none";
 }
 
 export function formatStatus(ctx: Pick<ExtensionContext, "ui">, windows: WindowStatus[]): string {
@@ -39,7 +64,7 @@ export function formatStatus(ctx: Pick<ExtensionContext, "ui">, windows: WindowS
   return windows
     .map((w) => {
       const core = formatWindowStatus(theme, w);
-      const reset = w.resetsAt ? theme.fg("dim", ` (↺${formatFooterResetTime(w.resetsAt)})`) : "";
+      const reset = w.resetsAt ? theme.fg("dim", ` (↺${formatFooterResetTime(w.resetsAt, w.provider)})`) : "";
       return `${core}${reset}`;
     })
     .join(" ");
@@ -62,9 +87,10 @@ function shouldShowInStatus(window: QuotaWindow): boolean {
 
 export function toWindowStatus(window: QuotaWindow): WindowStatus {
   return {
+    provider: window.provider,
     label: window.label,
     usedPercent: window.usedPercent,
-    severity: assessWindow(window).severity,
+    severity: assessStatusSeverity(window),
     resetsAt: window.resetsAt.getTime() > 0 ? window.resetsAt.toISOString() : null,
     limited: window.limited ?? false,
     isCurrency: window.isCurrency,

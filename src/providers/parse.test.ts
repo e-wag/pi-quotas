@@ -182,80 +182,38 @@ describe("parseCodexUsage", () => {
 });
 
 describe("parseGitHubCopilotUsage", () => {
-  it("maps premium interaction quota snapshot", () => {
-    const windows = parseGitHubCopilotUsage({
-      copilot_plan: "pro",
-      quota_reset_date: "2026-05-01T00:00:00Z",
-      quota_snapshots: {
-        premium_interactions: {
-          entitlement: 300,
-          remaining: 240,
-          percent_remaining: 80,
-          quota_id: "premium",
-        },
-        chat: {
-          entitlement: 1000,
-          remaining: 950,
-          percent_remaining: 95,
-          quota_id: "chat",
-        },
-      },
-    });
-
-    expect(windows).toHaveLength(2);
-    expect(windows[0]).toMatchObject({
-      provider: "github-copilot",
-      label: "Premium / month",
-      usedPercent: 20,
-      usedValue: 60,
-      limitValue: 300,
-    });
-    expect(windows[1]).toMatchObject({
-      provider: "github-copilot",
-      label: "Chat / month",
-      usedPercent: 5,
-      usedValue: 50,
-      limitValue: 1000,
-    });
-  });
-
-  it("includes overage info on premium interactions", () => {
+  it("maps only token-based premium interactions", () => {
     const windows = parseGitHubCopilotUsage({
       copilot_plan: "business",
       quota_reset_date: "2026-05-01T00:00:00Z",
       quota_snapshots: {
-        premium_interactions: {
-          entitlement: 300,
-          remaining: 293,
-          percent_remaining: 97.8,
-          overage_count: 5,
-          overage_permitted: true,
-        },
+        premium_interactions: { entitlement: 300, remaining: 240, overage_permitted: true },
+        chat: { entitlement: 1000, remaining: 950 },
+        completions: { entitlement: 4000, remaining: 4000 },
       },
-    });
+      monthly_quotas: { chat: 500, completions: 4000 },
+      limited_user_quotas: { chat: 410, completions: 4000 },
+    }, "company.ghe.com");
 
-    const premium = windows.find((w) => w.label === "Premium / month");
-    expect(premium).toBeDefined();
-    expect(premium!.nextAmount).toBe("+5 overage");
+    expect(windows).toHaveLength(1);
+    expect(windows[0]).toMatchObject({
+      provider: "github-copilot",
+      label: "Copilot company.ghe.com",
+      usedPercent: 20,
+      usedValue: 60,
+      limitValue: 300,
+      nextAmount: "overage allowed",
+    });
   });
 
-  it("handles free-tier completions data", () => {
+  it("ignores free-tier chat and completions data", () => {
     const windows = parseGitHubCopilotUsage({
-      access_type_sku: "free_limited_copilot",
       limited_user_reset_date: "2026-05-01",
-      monthly_quotas: {
-        chat: 500,
-        completions: 4000,
-      },
-      limited_user_quotas: {
-        chat: 410,
-        completions: 4000,
-      },
+      monthly_quotas: { chat: 500, completions: 4000 },
+      limited_user_quotas: { chat: 410, completions: 4000 },
     });
 
-    expect(windows).toHaveLength(2);
-    expect(windows[0]).toMatchObject({ label: "Chat / month", usedPercent: 18 });
-    expect(windows[1]).toMatchObject({ label: "Completions / month", usedPercent: 0 });
+    expect(windows).toEqual([]);
   });
 });
 
