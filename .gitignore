@@ -3,3 +3,4 @@ dist/
 .security-scan/
 *.tgz
 .DS_Store
+.idea/
