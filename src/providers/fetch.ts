@@ -22,17 +22,6 @@ const DEFAULT_GITHUB_HOST = "github.com";
 
 type CopilotTarget = { host: string };
 
-type GhAuthAccount = {
-  state?: string;
-  active?: boolean;
-  host?: string;
-  scopes?: string;
-};
-
-type GhAuthStatus = {
-  hosts?: Record<string, GhAuthAccount[]>;
-};
-
 function normalizeHost(value: string): string | undefined {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
@@ -44,41 +33,27 @@ function normalizeHost(value: string): string | undefined {
   }
 }
 
-function targetsFromGhAuthStatus(status: GhAuthStatus): CopilotTarget[] {
+function configuredCopilotTargets(): CopilotTarget[] | undefined {
+  const raw = process.env.PI_QUOTAS_COPILOT_HOSTS;
+  if (!raw) return undefined;
+
   const seen = new Set<string>();
   const targets: CopilotTarget[] = [];
-
-  for (const [host, accounts] of Object.entries(status.hosts ?? {})) {
-    const active = accounts.find((account) => account.active && account.state === "success")
-      ?? accounts.find((account) => account.state === "success");
-    if (!active) continue;
-
-    const normalized = normalizeHost(active.host ?? host);
-    if (!normalized || seen.has(normalized)) continue;
-
-    const scopes = active.scopes?.split(",").map((scope) => scope.trim().toLowerCase()) ?? [];
-    const isLikelyCopilotHost = normalized === DEFAULT_GITHUB_HOST || scopes.includes("copilot");
-    if (!isLikelyCopilotHost) continue;
-
-    seen.add(normalized);
-    targets.push({ host: normalized });
+  for (const value of raw.split(",")) {
+    const host = normalizeHost(value);
+    if (!host || seen.has(host)) continue;
+    seen.add(host);
+    targets.push({ host });
   }
-
   return targets;
 }
 
-async function discoverCopilotTargets(): Promise<CopilotTarget[]> {
-  try {
-    const result = await execFileAsync(
-      "gh",
-      ["auth", "status", "--json", "hosts", "--active"],
-      { timeout: FETCH_TIMEOUT_MS, maxBuffer: MAX_BUFFER, encoding: "utf8" },
-    );
-    const discovered = targetsFromGhAuthStatus(JSON.parse(result.stdout) as GhAuthStatus);
-    return discovered.length > 0 ? discovered : [{ host: DEFAULT_GITHUB_HOST }];
-  } catch {
-    return [{ host: DEFAULT_GITHUB_HOST }];
-  }
+function copilotTargetFromAuthStorage(authStorage: AuthStorage): CopilotTarget {
+  const credential = authStorage.get("github-copilot") as any;
+  const host = typeof credential?.enterpriseUrl === "string"
+    ? normalizeHost(credential.enterpriseUrl)
+    : undefined;
+  return { host: host ?? DEFAULT_GITHUB_HOST };
 }
 
 async function fetchCopilotUsageForTarget(target: CopilotTarget, signal?: AbortSignal): Promise<QuotasResult> {
@@ -395,10 +370,10 @@ export async function fetchCodexQuotas(
 }
 
 export async function fetchGitHubCopilotQuotas(
-  _authStorage: AuthStorage,
+  authStorage: AuthStorage,
   signal?: AbortSignal,
 ): Promise<QuotasResult> {
-  const targets = await discoverCopilotTargets();
+  const targets = configuredCopilotTargets() ?? [copilotTargetFromAuthStorage(authStorage)];
   const results = await Promise.all(targets.map((target) => fetchCopilotUsageForTarget(target, signal)));
   const successes = results.filter((result): result is Extract<QuotasResult, { success: true }> => result.success);
   if (successes.length > 0) {
