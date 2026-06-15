@@ -138,7 +138,7 @@ describe("fetchGitHubCopilotQuotasWithToken", () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("ignores legacy chat and completions buckets when using stored tokens", async () => {
+  it("shows a free-tier note when premium quota is absent", async () => {
     globalThis.fetch = vi
       .fn()
       .mockResolvedValueOnce(
@@ -147,10 +147,13 @@ describe("fetchGitHubCopilotQuotasWithToken", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
+            login: "e-wag",
+            access_type_sku: "free_limited_copilot",
             quota_reset_date: "2026-05-01T00:00:00Z",
             quota_snapshots: {
               chat: { entitlement: 1000, remaining: 950 },
               completions: { entitlement: 4000, remaining: 4000 },
+              premium_interactions: { entitlement: 0, remaining: 0, has_quota: false },
             },
           }),
           { status: 200 },
@@ -163,6 +166,7 @@ describe("fetchGitHubCopilotQuotasWithToken", () => {
     if (result.success) {
       expect(result.data.provider).toBe("github-copilot");
       expect(result.data.windows).toEqual([]);
+      expect(result.data.note).toBe("Free Copilot tier for e-wag (free_limited_copilot): no premium quota");
     }
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });

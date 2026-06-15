@@ -147,7 +147,8 @@ export class QuotasComponent implements Component {
 
     const windows = snapshot.result.data.windows;
     if (windows.length === 0) {
-      lines.push(truncateToWidth(`  ${this.theme.fg("dim", "No quota windows available")}`, maxWidth));
+      const message = snapshot.result.data.note ?? "No quota windows available";
+      lines.push(truncateToWidth(`  ${this.theme.fg("dim", message)}`, maxWidth));
       return lines;
     }
 

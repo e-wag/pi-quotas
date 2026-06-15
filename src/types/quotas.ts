@@ -13,7 +13,7 @@ export type QuotasErrorKind =
   | "network";
 
 export type QuotasResult =
-  | { success: true; data: { windows: QuotaWindow[]; provider: SupportedQuotaProvider } }
+  | { success: true; data: { windows: QuotaWindow[]; provider: SupportedQuotaProvider; note?: string } }
   | { success: false; error: { message: string; kind: QuotasErrorKind } };
 
 export interface QuotaWindow {
