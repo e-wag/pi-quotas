@@ -13,28 +13,30 @@ import {
   type RiskSeverity,
 } from "../../utils/quotas-severity.js";
 
-const COOLDOWN_MS = 60 * 60 * 1000;
+export const QUOTA_WARNING_COOLDOWN_MS = 60 * 60 * 1000;
 const MIN_FETCH_INTERVAL_MS = 30_000;
+
+const SEVERITY_ORDER: RiskSeverity[] = ["none", "warning", "high", "critical"];
 
 type AlertState = { lastSeverity: RiskSeverity; lastNotifiedAt: number };
 const alertState = new Map<string, AlertState>();
 let lastFetchAt = 0;
+let pendingCheck: Promise<void> | null = null;
+let lastProvider: string | undefined = undefined;
 
-function shouldNotify(key: string, severity: RiskSeverity): boolean {
+export function shouldNotify(key: string, severity: RiskSeverity, now = Date.now()): boolean {
+  if (severity === "none") return false;
   const current = alertState.get(key);
   if (!current) return true;
-  const order: RiskSeverity[] = ["none", "warning", "high", "critical"];
-  if (order.indexOf(severity) > order.indexOf(current.lastSeverity)) return true;
-  if (severity === "high" || severity === "critical") return true;
-  if (severity === "warning") return Date.now() - current.lastNotifiedAt >= COOLDOWN_MS;
-  return false;
+  if (SEVERITY_ORDER.indexOf(severity) > SEVERITY_ORDER.indexOf(current.lastSeverity)) return true;
+  return now - current.lastNotifiedAt >= QUOTA_WARNING_COOLDOWN_MS;
 }
 
-function markNotified(key: string, severity: RiskSeverity): void {
-  alertState.set(key, { lastSeverity: severity, lastNotifiedAt: Date.now() });
+export function markNotified(key: string, severity: RiskSeverity, now = Date.now()): void {
+  alertState.set(key, { lastSeverity: severity, lastNotifiedAt: now });
 }
 
-function clearAlertState(): void {
+export function clearAlertState(): void {
   alertState.clear();
   lastFetchAt = 0;
 }
@@ -86,18 +88,23 @@ export default async function (pi: ExtensionAPI) {
   }
 
   function scheduleCheck(ctx: ExtensionContext, onlyNew: boolean): void {
-    void check(ctx, onlyNew).catch(() => {
-      // Quota warnings are opportunistic; never let a failed quota check block Pi events.
-    });
+    const next = (pendingCheck ?? Promise.resolve())
+      .then(() => check(ctx, onlyNew))
+      .catch(() => {
+        // Quota warnings are opportunistic; never let a failed quota check block Pi events.
+      });
+    pendingCheck = next;
   }
 
   pi.events.on(QUOTAS_CONFIG_UPDATED_EVENT, (data: unknown) => {
+    const wasEnabled = enabled;
     enabled = (data as QuotasConfigUpdatedPayload).config.quotaWarnings;
     if (!enabled) {
       clearAlertState();
       return;
     }
-    if (currentContext) {
+    // Only clear and re-check on disabled→enabled transition, not on every event
+    if (!wasEnabled && currentContext) {
       clearAlertState();
       scheduleCheck(currentContext, false);
     }
@@ -117,8 +124,13 @@ export default async function (pi: ExtensionAPI) {
   });
 
   pi.on("model_select", async (_event, ctx) => {
+    const provider = ctx.model?.provider;
+    const providerChanged = provider !== lastProvider;
+    lastProvider = provider;
     currentContext = ctx;
-    clearAlertState();
+    if (providerChanged) {
+      clearAlertState();
+    }
   });
 
   pi.on("session_shutdown", async () => {
