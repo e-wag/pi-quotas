@@ -6,7 +6,7 @@ import {
   type QuotasConfigUpdatedPayload,
   configLoader,
 } from "../../config.js";
-import { fetchProviderQuotas, isSupportedProvider } from "../../lib/quotas.js";
+import { fetchProviderQuotas, isSupportedProvider, resolveActiveQuotaProvider } from "../../lib/quotas.js";
 import {
   assessWindow,
   formatTimeRemaining,
@@ -46,7 +46,7 @@ export default async function (pi: ExtensionAPI) {
   let enabled = configLoader.getConfig().quotaWarnings;
   let currentContext: ExtensionContext | undefined;
   async function check(ctx: ExtensionContext, onlyNew: boolean): Promise<void> {
-    const provider = ctx.model?.provider;
+    const provider = resolveActiveQuotaProvider(ctx.model?.provider, ctx.model?.id);
     if (!ctx.hasUI || !provider || !isSupportedProvider(provider)) return;
     const now = Date.now();
     if (onlyNew && now - lastFetchAt < MIN_FETCH_INTERVAL_MS) return;
@@ -124,7 +124,7 @@ export default async function (pi: ExtensionAPI) {
   });
 
   pi.on("model_select", async (_event, ctx) => {
-    const provider = ctx.model?.provider;
+    const provider = resolveActiveQuotaProvider(ctx.model?.provider, ctx.model?.id);
     const providerChanged = provider !== lastProvider;
     lastProvider = provider;
     currentContext = ctx;

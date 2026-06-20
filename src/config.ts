@@ -4,6 +4,16 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import pkg from "../package.json" with { type: "json" };
+import type { SupportedQuotaProvider } from "./types/quotas.js";
+
+/**
+ * Maps a model-id prefix to a supported quota provider. Lets a proxy provider
+ * (e.g. a local gateway that multiplexes upstreams) reuse upstream quota
+ * widgets by routing on the active model id. Keys are matched against the
+ * start of `model.id`; longest matching prefix wins. Empty by default —
+ * configure routes in ~/.pi/agent/extensions/quotas.json.
+ */
+export type ProviderPrefixMap = Record<string, SupportedQuotaProvider>;
 
 export type QuotasFeatureId =
   | "quotasCommand"
@@ -31,6 +41,8 @@ export interface QuotasConfig {
   quotaWarnings?: boolean;
   /** When true and pi-synthetic's usage footer is active, hide pi-quotas' Synthetic footer. */
   deferToSynthetic?: boolean;
+  /** Prefix→provider routing for proxy providers. See {@link ProviderPrefixMap}. */
+  providerPrefixes?: ProviderPrefixMap;
 }
 
 export interface ResolvedQuotasConfig {
@@ -40,6 +52,7 @@ export interface ResolvedQuotasConfig {
   usageStatus: boolean;
   quotaWarnings: boolean;
   deferToSynthetic: boolean;
+  providerPrefixes: ProviderPrefixMap;
 }
 
 const DEFAULT_CONFIG: ResolvedQuotasConfig = {
@@ -49,6 +62,7 @@ const DEFAULT_CONFIG: ResolvedQuotasConfig = {
   usageStatus: true,
   quotaWarnings: true,
   deferToSynthetic: true,
+  providerPrefixes: {},
 };
 
 let pendingMigrationNotice = false;
@@ -85,6 +99,7 @@ class QuotasConfigStore {
       usageStatus: input?.usageStatus ?? DEFAULT_CONFIG.usageStatus,
       quotaWarnings: input?.quotaWarnings ?? DEFAULT_CONFIG.quotaWarnings,
       deferToSynthetic: input?.deferToSynthetic ?? DEFAULT_CONFIG.deferToSynthetic,
+      providerPrefixes: { ...input?.providerPrefixes },
     };
   }
 

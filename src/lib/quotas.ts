@@ -1,5 +1,6 @@
 import type { AuthStorage } from "@mariozechner/pi-coding-agent";
 import { PROVIDER_FETCHERS } from "../providers/fetch.js";
+import { configLoader, type ProviderPrefixMap } from "../config.js";
 import type { QuotasResult, SupportedQuotaProvider } from "../types/quotas.js";
 
 export const SUPPORTED_PROVIDERS: SupportedQuotaProvider[] = [
@@ -38,6 +39,46 @@ export function isSupportedProvider(
   provider: string | undefined,
 ): provider is SupportedQuotaProvider {
   return SUPPORTED_PROVIDERS.includes(provider as SupportedQuotaProvider);
+}
+
+/**
+ * Resolve a (provider, modelId) pair to a supported quota provider via the
+ * configured prefix map. If the provider itself is supported, it wins.
+ * Otherwise the longest configured prefix matching `modelId` wins. Returns
+ * undefined when nothing matches.
+ *
+ * Pure: pass an explicit prefix map to keep this testable without the config
+ * loader. {@link resolveActiveQuotaProvider} reads the loaded config for you.
+ */
+export function resolveQuotaProvider(
+  provider: string | undefined,
+  modelId: string | undefined,
+  prefixes: ProviderPrefixMap,
+): SupportedQuotaProvider | undefined {
+  if (provider && isSupportedProvider(provider)) return provider;
+  if (!modelId || !prefixes) return undefined;
+  let match: SupportedQuotaProvider | undefined;
+  let matchLen = -1;
+  for (const [prefix, target] of Object.entries(prefixes)) {
+    if (prefix.length <= matchLen) continue;
+    if (modelId.startsWith(prefix)) {
+      match = target;
+      matchLen = prefix.length;
+    }
+  }
+  return match;
+}
+
+/** Convenience wrapper that reads the loaded config's prefix map. */
+export function resolveActiveQuotaProvider(
+  provider: string | undefined,
+  modelId: string | undefined,
+): SupportedQuotaProvider | undefined {
+  return resolveQuotaProvider(
+    provider,
+    modelId,
+    configLoader.getConfig().providerPrefixes,
+  );
 }
 
 export function clearQuotaCache(provider?: SupportedQuotaProvider): void {

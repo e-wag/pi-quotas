@@ -18,6 +18,7 @@ interface SyntheticExtensionsRegisterPayload {
 import {
   fetchProviderQuotas,
   isSupportedProvider,
+  resolveActiveQuotaProvider,
 } from "../../lib/quotas.js";
 import {
   assessWindow,
@@ -172,7 +173,7 @@ function createStatusRefresher() {
   return {
     async refreshFor(ctx: ExtensionContext): Promise<void> {
       activeContext = ctx;
-      activeProvider = ctx.model?.provider;
+      activeProvider = resolveActiveQuotaProvider(ctx.model?.provider, ctx.model?.id);
       if (!activeProvider || !isSupportedProvider(activeProvider)) {
         ctx.ui.setStatus(EXTENSION_ID, undefined);
         return;
