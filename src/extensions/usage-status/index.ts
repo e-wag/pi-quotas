@@ -120,7 +120,7 @@ function createStatusRefresher() {
   let queued = false;
 
   function isStaleContextError(error: unknown): boolean {
-    return error instanceof Error && error.message.includes("extension ctx is stale");
+    return error instanceof Error && error.message.toLowerCase().includes("extension ctx is stale");
   }
 
   function clearState(): void {
@@ -238,7 +238,7 @@ export default async function (pi: ExtensionAPI) {
   });
 
   function isStaleContextError(error: unknown): boolean {
-    return error instanceof Error && error.message.includes("extension ctx is stale");
+    return error instanceof Error && error.message.toLowerCase().includes("extension ctx is stale");
   }
 
   function scheduleRefresh(ctx: ExtensionContext): void {
