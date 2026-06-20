@@ -83,6 +83,26 @@ Settings can be saved globally (`~/.pi/agent/extensions/quotas.json`) or per-pro
 | Synthetic      | Subscription, search/hour, free tools, weekly tokens, 5h limit | Request counts and token budgets; rolling five-hour rate limit; weekly token regen                  |
 
 
+## Proxy providers
+
+If you route models through a proxy or gateway (for example a local gateway that multiplexes several upstream subscriptions), the active model's `provider` will be the proxy's provider id, not one of the supported providers above. pi-quotas can still show the right widget by routing on the model id prefix.
+
+Add a `providerPrefixes` map to `~/.pi/agent/extensions/quotas.json` (or per-project `.pi/quotas.json`):
+
+```json
+{
+  "providerPrefixes": {
+    "my-copilot/": "github-copilot",
+    "my-codex/": "openai-codex",
+    "my-openrouter/": "openrouter"
+  }
+}
+```
+
+Keys are matched against the start of the active model's id; the longest matching prefix wins. When the active provider is already a supported provider, it takes precedence over the prefix map. The map is empty by default, so nothing is routed unless you configure it.
+
+For the GitHub Copilot provider specifically, the quota host is read from the `enterpriseUrl` field of the `github-copilot` entry in `~/.pi/agent/auth.json` (defaults to `github.com`). To check a GitHub Enterprise subscription, set `enterpriseUrl` to your GHE host. The actual API call is made via the `gh` CLI, so no OAuth tokens need to be stored in the auth entry for the quota check to work. Alternatively, set the `PI_QUOTAS_COPILOT_HOSTS` environment variable to a comma-separated list of hosts, which takes precedence over the auth entry and lets you track multiple Copilot subscriptions at once.
+
 ## Credentials
 
 pi-quotas reads existing Pi auth entries from `~/.pi/agent/auth.json`:
