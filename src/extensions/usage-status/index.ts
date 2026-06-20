@@ -195,9 +195,15 @@ function createStatusRefresher() {
       }
     },
     renderLast(ctx: ExtensionContext): boolean {
-      if (!lastStatus || !ctx.hasUI) return false;
-      ctx.ui.setStatus(EXTENSION_ID, formatStatusForFooter(ctx, lastStatus));
-      return true;
+      try {
+        if (!lastStatus || !ctx.hasUI) return false;
+        ctx.ui.setStatus(EXTENSION_ID, formatStatusForFooter(ctx, lastStatus));
+        return true;
+      } catch (error) {
+        if (!isStaleContextError(error)) throw error;
+        clearState();
+        return false;
+      }
     },
   };
 }
@@ -214,13 +220,20 @@ export default async function (pi: ExtensionAPI) {
 
   pi.events.on(SYNTHETIC_EXTENSIONS_REGISTER_EVENT, (data: unknown) => {
     const { feature } = data as SyntheticExtensionsRegisterPayload;
-    if (feature === "usageStatus") {
-      syntheticUsageActive = true;
-      // If currently showing synthetic data, clear our footer
-      if (currentContext && enabled && deferToSynthetic && currentContext.model?.provider === "synthetic") {
+    if (feature !== "usageStatus") return;
+    syntheticUsageActive = true;
+    if (!currentContext || !enabled || !deferToSynthetic) return;
+
+    try {
+      // If currently showing synthetic data, clear our footer.
+      if (currentContext.model?.provider === "synthetic") {
         currentContext.ui.setStatus(EXTENSION_ID, undefined);
         refresher.stop();
       }
+    } catch (error) {
+      if (!isStaleContextError(error)) throw error;
+      currentContext = undefined;
+      refresher.stop();
     }
   });
 
