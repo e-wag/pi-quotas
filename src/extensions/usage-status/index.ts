@@ -119,31 +119,53 @@ function createStatusRefresher() {
   let inFlight = false;
   let queued = false;
 
+  function isStaleContextError(error: unknown): boolean {
+    return error instanceof Error && error.message.includes("extension ctx is stale");
+  }
+
+  function clearState(): void {
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = undefined;
+    activeContext = undefined;
+    activeProvider = undefined;
+    lastStatus = undefined;
+    queued = false;
+  }
+
   async function update(ctx: ExtensionContext): Promise<void> {
-    if (!ctx.hasUI || !activeProvider || !isSupportedProvider(activeProvider)) return;
-    if (inFlight) {
-      queued = true;
-      return;
-    }
-    inFlight = true;
     try {
-      const result = await fetchProviderQuotas(ctx.modelRegistry.authStorage, activeProvider);
-      if (!result.success) {
-        ctx.ui.setStatus(EXTENSION_ID, ctx.ui.theme.fg("warning", "usage unavailable"));
+      if (!ctx.hasUI || !activeProvider || !isSupportedProvider(activeProvider)) return;
+      if (inFlight) {
+        queued = true;
         return;
       }
-      const windows: WindowStatus[] = toStatusWindows(result.data.windows);
-      const status = formatStatusForFooter(ctx, windows);
-      lastStatus = status === undefined ? undefined : windows;
-      ctx.ui.setStatus(EXTENSION_ID, status);
-    } catch {
-      ctx.ui.setStatus(EXTENSION_ID, ctx.ui.theme.fg("warning", "usage unavailable"));
-    } finally {
-      inFlight = false;
-      if (queued) {
-        queued = false;
-        void update(ctx);
+      inFlight = true;
+      try {
+        const result = await fetchProviderQuotas(ctx.modelRegistry.authStorage, activeProvider);
+        if (!result.success) {
+          ctx.ui.setStatus(EXTENSION_ID, ctx.ui.theme.fg("warning", "usage unavailable"));
+          return;
+        }
+        const windows: WindowStatus[] = toStatusWindows(result.data.windows);
+        const status = formatStatusForFooter(ctx, windows);
+        lastStatus = status === undefined ? undefined : windows;
+        ctx.ui.setStatus(EXTENSION_ID, status);
+      } catch (error) {
+        if (isStaleContextError(error)) {
+          clearState();
+          return;
+        }
+        ctx.ui.setStatus(EXTENSION_ID, ctx.ui.theme.fg("warning", "usage unavailable"));
+      } finally {
+        inFlight = false;
+        if (queued) {
+          queued = false;
+          void update(ctx);
+        }
       }
+    } catch (error) {
+      if (isStaleContextError(error)) clearState();
+      else throw error;
     }
   }
 
@@ -165,12 +187,12 @@ function createStatusRefresher() {
       refreshTimer.unref?.();
     },
     stop(ctx?: ExtensionContext): void {
-      if (refreshTimer) clearInterval(refreshTimer);
-      refreshTimer = undefined;
-      activeContext = undefined;
-      activeProvider = undefined;
-      lastStatus = undefined;
-      ctx?.ui.setStatus(EXTENSION_ID, undefined);
+      clearState();
+      try {
+        ctx?.ui.setStatus(EXTENSION_ID, undefined);
+      } catch (error) {
+        if (!isStaleContextError(error)) throw error;
+      }
     },
     renderLast(ctx: ExtensionContext): boolean {
       if (!lastStatus || !ctx.hasUI) return false;
@@ -202,9 +224,18 @@ export default async function (pi: ExtensionAPI) {
     }
   });
 
+  function isStaleContextError(error: unknown): boolean {
+    return error instanceof Error && error.message.includes("extension ctx is stale");
+  }
+
   function scheduleRefresh(ctx: ExtensionContext): void {
-    void refresher.refreshFor(ctx).catch(() => {
-      if (ctx.hasUI) ctx.ui.setStatus(EXTENSION_ID, ctx.ui.theme.fg("warning", "usage unavailable"));
+    void refresher.refreshFor(ctx).catch((error) => {
+      if (isStaleContextError(error)) return;
+      try {
+        if (ctx.hasUI) ctx.ui.setStatus(EXTENSION_ID, ctx.ui.theme.fg("warning", "usage unavailable"));
+      } catch (statusError) {
+        if (!isStaleContextError(statusError)) throw statusError;
+      }
     });
   }
 
