@@ -88,16 +88,25 @@ async function fetchCopilotUsageForTarget(target: CopilotTarget, signal?: AbortS
       { signal, timeout: FETCH_TIMEOUT_MS, maxBuffer: MAX_BUFFER, encoding: "utf8" },
     );
     const data = JSON.parse(result.stdout);
-    return success(
-      "github-copilot",
-      parseGitHubCopilotUsage(data, target.host),
-      copilotNoPremiumQuotaNote(data, target.host),
-    );
+    return copilotSuccess(data, target.host);
   } catch (err: unknown) {
-    if (err instanceof Error && err.name === "AbortError") return failure("Request cancelled", "cancelled");
-    const anyErr = err as { code?: unknown };
+    if (err instanceof SyntaxError) {
+      return failure("GitHub Copilot quota response was invalid JSON", "http");
+    }
+    if (err instanceof Error && err.name === "AbortError") {
+      return failure("Request cancelled", "cancelled");
+    }
+    if (isCopilotCliTimeout(err)) {
+      return failure(`GitHub Copilot quota request timed out for ${target.host}`, "timeout");
+    }
+    const anyErr = err as { code?: unknown; stderr?: unknown; message?: unknown };
     if (anyErr?.code === "ENOENT") return failure("GitHub CLI not found", "config");
-    return failure("GitHub Copilot quota request failed", "http");
+    const detail = typeof anyErr?.stderr === "string" && anyErr.stderr.trim().length > 0
+      ? anyErr.stderr.trim()
+      : typeof anyErr?.message === "string" && anyErr.message.trim().length > 0
+        ? anyErr.message.trim()
+        : `Host ${target.host}`;
+    return failure(`GitHub Copilot quota request failed for ${target.host}: ${detail}`, "http");
   }
 }
 
@@ -106,6 +115,61 @@ function isTimeoutReason(reason: unknown): boolean {
     (reason instanceof DOMException && reason.name === "TimeoutError") ||
     (reason instanceof Error && reason.name === "TimeoutError")
   );
+}
+
+function isCopilotCliTimeout(err: unknown): boolean {
+  const anyErr = err as { code?: unknown; killed?: unknown; message?: unknown };
+  return (
+    anyErr?.code === "ETIMEDOUT" ||
+    anyErr?.killed === true ||
+    (typeof anyErr?.message === "string" && anyErr.message.toLowerCase().includes("timed out"))
+  );
+}
+
+function hasLimitedCopilotQuotaSnapshot(snap: any): boolean {
+  const entitlement = Number(snap?.entitlement ?? 0);
+  return Number.isFinite(entitlement) && entitlement > 0 && !snap?.unlimited;
+}
+
+function hasVisibleFreeTierCopilotWindows(snapshots: any): boolean {
+  return ["chat", "completions"].some((key) => hasLimitedCopilotQuotaSnapshot(snapshots?.[key]));
+}
+
+function isFreeCopilotSku(value: unknown): boolean {
+  return typeof value === "string" && /^free(?:_|$)/.test(value);
+}
+
+function copilotSuccess(data: any, host = DEFAULT_GITHUB_HOST): QuotasResult {
+  return success(
+    "github-copilot",
+    parseGitHubCopilotUsage(data, host),
+    copilotNoPremiumQuotaNote(data, host),
+  );
+}
+
+function aggregateCopilotErrors(
+  results: Array<{ host: string; result: QuotasResult }>,
+): QuotasResult {
+  if (results.length === 0) return failure("No GitHub Copilot hosts found", "config");
+
+  const failures = results.filter(
+    (entry): entry is { host: string; result: Extract<QuotasResult, { success: false }> } => !entry.result.success,
+  );
+  if (failures.length === 0) return failure("GitHub Copilot quota request failed", "http");
+
+  const kinds: Array<Extract<QuotasResult, { success: false }>['error']['kind']> = [
+    "cancelled",
+    "timeout",
+    "config",
+    "network",
+    "http",
+  ];
+  const kind = kinds.find((candidate) => failures.some((entry) => entry.result.error.kind === candidate)) ?? "http";
+  const message = failures
+    .map((entry) => `${entry.host}: ${entry.result.error.message}`)
+    .filter((value, index, all) => all.indexOf(value) === index)
+    .join("; ");
+  return failure(message, kind);
 }
 
 async function providerAccessToken(
@@ -182,21 +246,12 @@ function success(
 
 function copilotNoPremiumQuotaNote(data: any, host = DEFAULT_GITHUB_HOST): string | undefined {
   const snapshots = data?.quota_snapshots;
-  const snap = snapshots?.premium_interactions;
-  if (!snap) return undefined;
+  const premium = snapshots?.premium_interactions;
+  if (!premium) return undefined;
 
-  const entitlement = Number(snap.entitlement ?? 0);
-  if (Number.isFinite(entitlement) && entitlement > 0) return undefined;
-
-  for (const key of ["chat", "completions"] as const) {
-    const quota = snapshots?.[key];
-    const quotaEntitlement = Number(quota?.entitlement ?? 0);
-    if (Number.isFinite(quotaEntitlement) && quotaEntitlement > 0 && !quota?.unlimited) {
-      return undefined;
-    }
-  }
-
-  if (snap.has_quota !== false && !String(data?.access_type_sku ?? "").includes("free")) return undefined;
+  if (hasLimitedCopilotQuotaSnapshot(premium)) return undefined;
+  if (hasVisibleFreeTierCopilotWindows(snapshots)) return undefined;
+  if (premium.has_quota !== false && !isFreeCopilotSku(data?.access_type_sku)) return undefined;
 
   const login = typeof data?.login === "string" && data.login.length > 0 ? data.login : undefined;
   const sku = typeof data?.access_type_sku === "string" && data.access_type_sku.length > 0
@@ -314,24 +369,12 @@ async function fetchGitHubCopilotQuotasWithGitHubToken(
   if (!githubToken) return failure("No GitHub Copilot OAuth token found", "config");
 
   const bearerUsage = await tryGitHubUserEndpoint(`Bearer ${githubToken}`, signal);
-  if (bearerUsage.ok) {
-    return success(
-      "github-copilot",
-      parseGitHubCopilotUsage(bearerUsage.data),
-      copilotNoPremiumQuotaNote(bearerUsage.data),
-    );
-  }
+  if (bearerUsage.ok) return copilotSuccess(bearerUsage.data);
 
   const tokenUsage = await tryGitHubUserEndpoint(`token ${githubToken}`, signal);
-  if (tokenUsage.ok) {
-    return success(
-      "github-copilot",
-      parseGitHubCopilotUsage(tokenUsage.data),
-      copilotNoPremiumQuotaNote(tokenUsage.data),
-    );
-  }
+  if (tokenUsage.ok) return copilotSuccess(tokenUsage.data);
 
-  return failure(bearerUsage.message, bearerUsage.kind);
+  return failure(tokenUsage.message, tokenUsage.kind);
 }
 
 export async function fetchGitHubCopilotQuotasWithToken(
@@ -340,7 +383,7 @@ export async function fetchGitHubCopilotQuotasWithToken(
 ): Promise<QuotasResult> {
   if (!accessToken) return failure("No GitHub Copilot OAuth token found", "config");
 
-  // 1) Try Copilot token exchange with stored Pi token
+  // 1) Try Copilot token exchange with stored Pi token.
   const exchange = await fetchJson(
     "https://api.github.com/copilot_internal/v2/token",
     { headers: copilotHeaders(`Bearer ${accessToken}`) },
@@ -349,36 +392,18 @@ export async function fetchGitHubCopilotQuotasWithToken(
 
   if (exchange.ok && exchange.data?.token) {
     const usage = await tryGitHubUserEndpoint(`Bearer ${exchange.data.token}`, signal);
-    if (usage.ok) {
-      return success(
-        "github-copilot",
-        parseGitHubCopilotUsage(usage.data),
-        copilotNoPremiumQuotaNote(usage.data),
-      );
-    }
+    if (usage.ok) return copilotSuccess(usage.data);
   }
 
-  // 2) Try stored token directly
+  // 2) Try stored token directly.
   const directUsage = await tryGitHubUserEndpoint(`token ${accessToken}`, signal);
-  if (directUsage.ok) {
-    return success(
-      "github-copilot",
-      parseGitHubCopilotUsage(directUsage.data),
-      copilotNoPremiumQuotaNote(directUsage.data),
-    );
-  }
+  if (directUsage.ok) return copilotSuccess(directUsage.data);
 
-  // 3) Fallback: gh CLI token
+  // 3) Fallback: gh CLI token.
   const cliToken = ghCliToken();
   if (cliToken && cliToken !== accessToken) {
     const cliUsage = await tryGitHubUserEndpoint(`token ${cliToken}`, signal);
-    if (cliUsage.ok) {
-      return success(
-        "github-copilot",
-        parseGitHubCopilotUsage(cliUsage.data),
-        copilotNoPremiumQuotaNote(cliUsage.data),
-      );
-    }
+    if (cliUsage.ok) return copilotSuccess(cliUsage.data);
     return failure(cliUsage.message, cliUsage.kind);
   }
 
@@ -408,16 +433,26 @@ export async function fetchGitHubCopilotQuotas(
   signal?: AbortSignal,
 ): Promise<QuotasResult> {
   const targets = configuredCopilotTargets() ?? copilotTargetsForAllHosts(authStorage);
-  const results = await Promise.all(targets.map((target) => fetchCopilotUsageForTarget(target, signal)));
-  const successes = results.filter((result): result is Extract<QuotasResult, { success: true }> => result.success);
+  const results = await Promise.all(
+    targets.map(async (target) => ({ host: target.host, result: await fetchCopilotUsageForTarget(target, signal) })),
+  );
+  const successes = results.filter(
+    (entry): entry is { host: string; result: Extract<QuotasResult, { success: true }> } => entry.result.success,
+  );
+
   if (successes.length > 0) {
-    const windows = successes.flatMap((result) => result.data.windows);
+    const windows = successes.flatMap((entry) => entry.result.data.windows);
     const note = windows.length === 0
-      ? successes.map((result) => result.data.note).find((value): value is string => !!value)
+      ? successes
+        .map((entry) => entry.result.data.note)
+        .filter((value): value is string => !!value)
+        .filter((value, index, all) => all.indexOf(value) === index)
+        .join("; ") || undefined
       : undefined;
     return success("github-copilot", windows, note);
   }
-  return results[0] ?? failure("No GitHub Copilot hosts found", "config");
+
+  return aggregateCopilotErrors(results);
 }
 
 export async function fetchOpenRouterQuotasWithToken(

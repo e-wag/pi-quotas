@@ -177,10 +177,47 @@ export function parseCodexUsage(data: any): QuotaWindow[] {
   return windows;
 }
 
+function parseGitHubCopilotSnapshot(
+  snap: any,
+  host: string,
+  label: string,
+  resetSource: unknown,
+): QuotaWindow[] {
+  if (!snap || snap.unlimited) return [];
+
+  const entitlement = Number(snap.entitlement ?? 0);
+  const remaining = Number(snap.remaining ?? snap.quota_remaining ?? 0);
+  if (!Number.isFinite(entitlement) || entitlement <= 0) return [];
+
+  const resetAt = parseDateish(resetSource);
+  const overageCount = Number(snap.overage_count ?? 0);
+  const overagePermitted = !!snap.overage_permitted;
+  const used = Math.max(0, entitlement - remaining);
+
+  return [{
+    provider: "github-copilot",
+    host,
+    label,
+    usedPercent: safePercent(used, entitlement),
+    resetsAt: resetAt,
+    windowSeconds: monthWindowSeconds(resetAt),
+    usedValue: used,
+    limitValue: entitlement,
+    showPace: false,
+    nextLabel: "Resets",
+    nextAmount: overageCount > 0
+      ? `+${overageCount} overage`
+      : overagePermitted
+        ? "overage allowed"
+        : undefined,
+  }];
+}
+
 export function parseGitHubCopilotUsage(data: any, host = "github.com"): QuotaWindow[] {
   const snapshots = data?.quota_snapshots;
   if (!snapshots || typeof snapshots !== "object") return [];
 
+  const resetSource = data?.quota_reset_date;
   const specs: Array<{
     key: "premium_interactions" | "chat" | "completions";
     label: string;
@@ -195,34 +232,7 @@ export function parseGitHubCopilotUsage(data: any, host = "github.com"): QuotaWi
 
   return specs.flatMap(({ key, label }) => {
     const snap = snapshots[key];
-    if (!snap || snap.unlimited) return [];
-
-    const entitlement = Number(snap.entitlement ?? 0);
-    const remaining = Number(snap.remaining ?? snap.quota_remaining ?? 0);
-    if (!Number.isFinite(entitlement) || entitlement <= 0) return [];
-
-    const resetAt = parseDateish(data?.quota_reset_date ?? snap.quota_reset_at);
-    const overageCount = Number(snap.overage_count ?? 0);
-    const overagePermitted = !!snap.overage_permitted;
-    const used = Math.max(0, entitlement - remaining);
-
-    return [{
-      provider: "github-copilot",
-      host,
-      label,
-      usedPercent: safePercent(used, entitlement),
-      resetsAt: resetAt,
-      windowSeconds: monthWindowSeconds(resetAt),
-      usedValue: used,
-      limitValue: entitlement,
-      showPace: false,
-      nextLabel: "Resets",
-      nextAmount: overageCount > 0
-        ? `+${overageCount} overage`
-        : overagePermitted
-          ? "overage allowed"
-          : undefined,
-    }];
+    return parseGitHubCopilotSnapshot(snap, host, label, resetSource ?? snap?.quota_reset_at);
   });
 }
 

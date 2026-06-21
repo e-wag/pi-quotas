@@ -111,6 +111,7 @@ describe("fetchGitHubCopilotQuotasWithToken", () => {
     if (result.success) {
       expect(result.data.provider).toBe("github-copilot");
       expect(result.data.windows).toHaveLength(1);
+      expect(result.data.note).toBeUndefined();
     }
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
@@ -165,6 +166,7 @@ describe("fetchGitHubCopilotQuotasWithToken", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.provider).toBe("github-copilot");
+      expect(result.data.windows).toHaveLength(2);
       expect(result.data.windows).toMatchObject([
         {
           provider: "github-copilot",
