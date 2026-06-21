@@ -26,6 +26,29 @@ export type ProviderPrefixTarget =
 
 export type ProviderPrefixMap = Record<string, ProviderPrefixTarget>;
 
+/**
+ * Collect the distinct Copilot hosts configured in a prefix map. Entries
+ * whose target provider is `github-copilot` and carry a `host` override
+ * contribute their host. Pure: the caller passes the loaded config's prefix
+ * map so this stays testable without the config loader.
+ */
+export function copilotHostsFromPrefixes(
+  prefixes: ProviderPrefixMap | undefined,
+): string[] {
+  if (!prefixes) return [];
+  const seen = new Set<string>();
+  const hosts: string[] = [];
+  for (const target of Object.values(prefixes)) {
+    const provider = typeof target === "string" ? target : target.provider;
+    if (provider !== "github-copilot") continue;
+    const host = typeof target === "string" ? undefined : target.host;
+    if (!host || seen.has(host)) continue;
+    seen.add(host);
+    hosts.push(host);
+  }
+  return hosts;
+}
+
 export type QuotasFeatureId =
   | "quotasCommand"
   | "providerCommands"

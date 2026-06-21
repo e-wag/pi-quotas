@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { AuthStorage } from "@mariozechner/pi-coding-agent";
 import type { QuotasResult, SupportedQuotaProvider } from "../types/quotas.js";
+import { configLoader, copilotHostsFromPrefixes } from "../config.js";
 import {
   parseAnthropicUsage,
   parseCodexUsage,
@@ -54,6 +55,29 @@ function copilotTargetFromAuthStorage(authStorage: AuthStorage): CopilotTarget {
     ? normalizeHost(credential.enterpriseUrl)
     : undefined;
   return { host: host ?? DEFAULT_GITHUB_HOST };
+}
+
+/**
+ * Build the full set of Copilot hosts to fetch when no explicit env override
+ * (`PI_QUOTAS_COPILOT_HOSTS`) is set. Unions hosts configured in `quotas.json`
+ * `providerPrefixes` (e.g. copilot-personal/ -> github.com,
+ * copilot-enterprise/ -> ghe.host) with the legacy auth.json enterpriseUrl
+ * default, so multi-host setups fetch every subscription the active model
+ * might target. `filterWindowsForHost` narrows to the active model's host
+ * afterward.
+ */
+function copilotTargetsForAllHosts(authStorage: AuthStorage): CopilotTarget[] {
+  const seen = new Set<string>();
+  const targets: CopilotTarget[] = [];
+  const add = (host: string | undefined): void => {
+    if (!host || seen.has(host)) return;
+    seen.add(host);
+    targets.push({ host });
+  };
+  for (const host of copilotHostsFromPrefixes(configLoader.getConfig().providerPrefixes)) add(host);
+  add(copilotTargetFromAuthStorage(authStorage).host);
+  if (targets.length === 0) add(DEFAULT_GITHUB_HOST);
+  return targets;
 }
 
 async function fetchCopilotUsageForTarget(target: CopilotTarget, signal?: AbortSignal): Promise<QuotasResult> {
@@ -373,7 +397,7 @@ export async function fetchGitHubCopilotQuotas(
   authStorage: AuthStorage,
   signal?: AbortSignal,
 ): Promise<QuotasResult> {
-  const targets = configuredCopilotTargets() ?? [copilotTargetFromAuthStorage(authStorage)];
+  const targets = configuredCopilotTargets() ?? copilotTargetsForAllHosts(authStorage);
   const results = await Promise.all(targets.map((target) => fetchCopilotUsageForTarget(target, signal)));
   const successes = results.filter((result): result is Extract<QuotasResult, { success: true }> => result.success);
   if (successes.length > 0) {
