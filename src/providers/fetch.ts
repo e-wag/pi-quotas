@@ -181,11 +181,21 @@ function success(
 }
 
 function copilotNoPremiumQuotaNote(data: any, host = DEFAULT_GITHUB_HOST): string | undefined {
-  const snap = data?.quota_snapshots?.premium_interactions;
+  const snapshots = data?.quota_snapshots;
+  const snap = snapshots?.premium_interactions;
   if (!snap) return undefined;
 
   const entitlement = Number(snap.entitlement ?? 0);
   if (Number.isFinite(entitlement) && entitlement > 0) return undefined;
+
+  for (const key of ["chat", "completions"] as const) {
+    const quota = snapshots?.[key];
+    const quotaEntitlement = Number(quota?.entitlement ?? 0);
+    if (Number.isFinite(quotaEntitlement) && quotaEntitlement > 0 && !quota?.unlimited) {
+      return undefined;
+    }
+  }
+
   if (snap.has_quota !== false && !String(data?.access_type_sku ?? "").includes("free")) return undefined;
 
   const login = typeof data?.login === "string" && data.login.length > 0 ? data.login : undefined;

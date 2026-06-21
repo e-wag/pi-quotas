@@ -181,55 +181,7 @@ describe("parseCodexUsage", () => {
   });
 });
 
-describe("parseGitHubCopilotUsage", () => {
-  it("maps only token-based premium interactions", () => {
-    const windows = parseGitHubCopilotUsage({
-      copilot_plan: "business",
-      quota_reset_date: "2026-05-01T00:00:00Z",
-      quota_snapshots: {
-        premium_interactions: { entitlement: 300, remaining: 240, overage_permitted: true },
-        chat: { entitlement: 1000, remaining: 950 },
-        completions: { entitlement: 4000, remaining: 4000 },
-      },
-      monthly_quotas: { chat: 500, completions: 4000 },
-      limited_user_quotas: { chat: 410, completions: 4000 },
-    }, "company.ghe.com");
-
-    expect(windows).toHaveLength(1);
-    expect(windows[0]).toMatchObject({
-      provider: "github-copilot",
-      host: "company.ghe.com",
-      label: "Copilot company.ghe.com",
-      usedPercent: 20,
-      usedValue: 60,
-      limitValue: 300,
-      nextAmount: "overage allowed",
-    });
-  });
-
-  it("stamps the default host when none is passed", () => {
-    const windows = parseGitHubCopilotUsage({
-      quota_reset_date: "2026-05-01T00:00:00Z",
-      quota_snapshots: {
-        premium_interactions: { entitlement: 300, remaining: 240 },
-      },
-    });
-    expect(windows[0].host).toBe("github.com");
-    expect(windows[0].label).toBe("Copilot");
-  });
-
-  it("ignores free-tier chat and completions data", () => {
-    const windows = parseGitHubCopilotUsage({
-      limited_user_reset_date: "2026-05-01",
-      monthly_quotas: { chat: 500, completions: 4000 },
-      limited_user_quotas: { chat: 410, completions: 4000 },
-    });
-
-    expect(windows).toEqual([]);
-  });
-});
-
-describe("parseOpenRouterUsage", () => {
+describe("parseGitHubCopilotUsage", () => { it("maps only premium interactions for paid plans when other quotas are unlimited", () => { const windows = parseGitHubCopilotUsage({ copilot_plan: "business", quota_reset_date: "2026-05-01T00:00:00Z", quota_snapshots: { premium_interactions: { entitlement: 300, remaining: 240, overage_permitted: true }, chat: { entitlement: 0, remaining: 0, unlimited: true }, completions: { entitlement: 0, remaining: 0, unlimited: true }, }, monthly_quotas: { chat: 500, completions: 4000 }, limited_user_quotas: { chat: 410, completions: 4000 }, }, "company.ghe.com"); expect(windows).toHaveLength(1); expect(windows[0]).toMatchObject({ provider: "github-copilot", host: "company.ghe.com", label: "Copilot company.ghe.com", usedPercent: 20, usedValue: 60, limitValue: 300, nextAmount: "overage allowed", }); }); it("stamps default host when none is passed", () => { const windows = parseGitHubCopilotUsage({ quota_reset_date: "2026-05-01T00:00:00Z", quota_snapshots: { premium_interactions: { entitlement: 300, remaining: 240 }, }, }); expect(windows[0].host).toBe("github.com"); expect(windows[0].label).toBe("Copilot"); }); it("maps free-tier chat and completions windows", () => { const windows = parseGitHubCopilotUsage({ quota_reset_date: "2026-05-01T00:00:00Z", quota_snapshots: { premium_interactions: { entitlement: 0, remaining: 0, has_quota: false }, chat: { entitlement: 200, remaining: 195, quota_remaining: 195.2 }, completions: { entitlement: 2000, remaining: 2000, quota_remaining: 2000 }, }, }); expect(windows).toHaveLength(2); expect(windows[0]).toMatchObject({ provider: "github-copilot", host: "github.com", label: "Copilot chat", usedPercent: 2.5, usedValue: 5, limitValue: 200, }); expect(windows[1]).toMatchObject({ provider: "github-copilot", host: "github.com", label: "Copilot completions", usedPercent: 0, usedValue: 0, limitValue: 2000, }); }); }); describe("parseOpenRouterUsage", () => {
   it("maps API response with monthly budget limit", () => {
     const windows = parseOpenRouterUsage({
       data: {

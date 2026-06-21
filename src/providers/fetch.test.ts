@@ -138,7 +138,7 @@ describe("fetchGitHubCopilotQuotasWithToken", () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("shows a free-tier note when premium quota is absent", async () => {
+  it("maps free-tier chat and completions windows when premium quota is absent", async () => {
     globalThis.fetch = vi
       .fn()
       .mockResolvedValueOnce(
@@ -165,8 +165,25 @@ describe("fetchGitHubCopilotQuotasWithToken", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.provider).toBe("github-copilot");
-      expect(result.data.windows).toEqual([]);
-      expect(result.data.note).toBe("Free Copilot tier for e-wag (free_limited_copilot): no premium quota");
+      expect(result.data.windows).toMatchObject([
+        {
+          provider: "github-copilot",
+          host: "github.com",
+          label: "Copilot chat",
+          usedPercent: 5,
+          usedValue: 50,
+          limitValue: 1000,
+        },
+        {
+          provider: "github-copilot",
+          host: "github.com",
+          label: "Copilot completions",
+          usedPercent: 0,
+          usedValue: 0,
+          limitValue: 4000,
+        },
+      ]);
+      expect(result.data.note).toBeUndefined();
     }
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });

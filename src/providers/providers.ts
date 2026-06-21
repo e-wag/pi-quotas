@@ -178,35 +178,52 @@ export function parseCodexUsage(data: any): QuotaWindow[] {
 }
 
 export function parseGitHubCopilotUsage(data: any, host = "github.com"): QuotaWindow[] {
-  const snap = data?.quota_snapshots?.premium_interactions;
-  if (!snap || snap.unlimited) return [];
+  const snapshots = data?.quota_snapshots;
+  if (!snapshots || typeof snapshots !== "object") return [];
 
-  const entitlement = Number(snap.entitlement ?? 0);
-  const remaining = Number(snap.remaining ?? snap.quota_remaining ?? 0);
-  if (!Number.isFinite(entitlement) || entitlement <= 0) return [];
+  const specs: Array<{
+    key: "premium_interactions" | "chat" | "completions";
+    label: string;
+  }> = [
+    {
+      key: "premium_interactions",
+      label: host === "github.com" ? "Copilot" : `Copilot ${host}`,
+    },
+    { key: "chat", label: "Copilot chat" },
+    { key: "completions", label: "Copilot completions" },
+  ];
 
-  const resetAt = parseDateish(data?.quota_reset_date ?? snap.quota_reset_at);
-  const overageCount = Number(snap.overage_count ?? 0);
-  const overagePermitted = !!snap.overage_permitted;
-  const used = Math.max(0, entitlement - remaining);
+  return specs.flatMap(({ key, label }) => {
+    const snap = snapshots[key];
+    if (!snap || snap.unlimited) return [];
 
-  return [{
-    provider: "github-copilot",
-    host,
-    label: host === "github.com" ? "Copilot" : `Copilot ${host}`,
-    usedPercent: safePercent(used, entitlement),
-    resetsAt: resetAt,
-    windowSeconds: monthWindowSeconds(resetAt),
-    usedValue: used,
-    limitValue: entitlement,
-    showPace: false,
-    nextLabel: "Resets",
-    nextAmount: overageCount > 0
-      ? `+${overageCount} overage`
-      : overagePermitted
-        ? "overage allowed"
-        : undefined,
-  }];
+    const entitlement = Number(snap.entitlement ?? 0);
+    const remaining = Number(snap.remaining ?? snap.quota_remaining ?? 0);
+    if (!Number.isFinite(entitlement) || entitlement <= 0) return [];
+
+    const resetAt = parseDateish(data?.quota_reset_date ?? snap.quota_reset_at);
+    const overageCount = Number(snap.overage_count ?? 0);
+    const overagePermitted = !!snap.overage_permitted;
+    const used = Math.max(0, entitlement - remaining);
+
+    return [{
+      provider: "github-copilot",
+      host,
+      label,
+      usedPercent: safePercent(used, entitlement),
+      resetsAt: resetAt,
+      windowSeconds: monthWindowSeconds(resetAt),
+      usedValue: used,
+      limitValue: entitlement,
+      showPace: false,
+      nextLabel: "Resets",
+      nextAmount: overageCount > 0
+        ? `+${overageCount} overage`
+        : overagePermitted
+          ? "overage allowed"
+          : undefined,
+    }];
+  });
 }
 
 // Helper functions for OpenRouter date calculations (UTC-based)
