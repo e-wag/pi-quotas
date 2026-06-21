@@ -17,8 +17,10 @@ interface SyntheticExtensionsRegisterPayload {
 }
 import {
   fetchProviderQuotas,
+  filterWindowsForHost,
   isSupportedProvider,
   resolveActiveQuotaProvider,
+  resolveActiveQuotaProviderHost,
 } from "../../lib/quotas.js";
 import {
   assessWindow,
@@ -147,7 +149,10 @@ function createStatusRefresher() {
           ctx.ui.setStatus(EXTENSION_ID, ctx.ui.theme.fg("warning", "usage unavailable"));
           return;
         }
-        const windows: WindowStatus[] = toStatusWindows(result.data.windows);
+        const host = resolveActiveQuotaProviderHost(ctx.model?.id);
+        const windows: WindowStatus[] = toStatusWindows(
+          filterWindowsForHost(activeProvider, host, result.data.windows),
+        );
         const status = formatStatusForFooter(ctx, windows);
         lastStatus = status === undefined ? undefined : windows;
         ctx.ui.setStatus(EXTENSION_ID, status);

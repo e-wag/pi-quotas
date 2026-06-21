@@ -192,6 +192,7 @@ export function parseGitHubCopilotUsage(data: any, host = "github.com"): QuotaWi
 
   return [{
     provider: "github-copilot",
+    host,
     label: host === "github.com" ? "Copilot" : `Copilot ${host}`,
     usedPercent: safePercent(used, entitlement),
     resetsAt: resetAt,

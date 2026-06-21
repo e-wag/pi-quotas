@@ -1,7 +1,8 @@
 import type { AuthStorage } from "@mariozechner/pi-coding-agent";
 import { PROVIDER_FETCHERS } from "../providers/fetch.js";
 import { configLoader, type ProviderPrefixMap } from "../config.js";
-import type { QuotasResult, SupportedQuotaProvider } from "../types/quotas.js";
+import type { QuotaWindow, QuotasResult, SupportedQuotaProvider } from "../types/quotas.js";
+import type { ProviderPrefixTarget } from "../config.js";
 
 export const SUPPORTED_PROVIDERS: SupportedQuotaProvider[] = [
   "anthropic",
@@ -50,14 +51,33 @@ export function isSupportedProvider(
  * Pure: pass an explicit prefix map to keep this testable without the config
  * loader. {@link resolveActiveQuotaProvider} reads the loaded config for you.
  */
-export function resolveQuotaProvider(
+/** Extract the provider id from a {@link ProviderPrefixTarget} value. */
+function prefixTargetProvider(target: ProviderPrefixTarget): SupportedQuotaProvider {
+  return typeof target === "string" ? target : target.provider;
+}
+
+/** Extract the host override from a {@link ProviderPrefixTarget} value. */
+function prefixTargetHost(target: ProviderPrefixTarget): string | undefined {
+  return typeof target === "string" ? undefined : target.host;
+}
+
+/**
+ * Resolve a (provider, modelId) pair to the matching prefix target via the
+ * configured prefix map. If the provider itself is supported, it wins.
+ * Otherwise the longest configured prefix matching `modelId` wins. Returns
+ * undefined when nothing matches.
+ *
+ * Pure: pass an explicit prefix map to keep this testable without the config
+ * loader. {@link resolveActiveQuotaProvider} reads the loaded config for you.
+ */
+function resolvePrefixTarget(
   provider: string | undefined,
   modelId: string | undefined,
-  prefixes: ProviderPrefixMap,
-): SupportedQuotaProvider | undefined {
+  prefixes: ProviderPrefixMap | undefined,
+): ProviderPrefixTarget | undefined {
   if (provider && isSupportedProvider(provider)) return provider;
   if (!modelId || !prefixes) return undefined;
-  let match: SupportedQuotaProvider | undefined;
+  let match: ProviderPrefixTarget | undefined;
   let matchLen = -1;
   for (const [prefix, target] of Object.entries(prefixes)) {
     if (prefix.length <= matchLen) continue;
@@ -67,6 +87,29 @@ export function resolveQuotaProvider(
     }
   }
   return match;
+}
+
+export function resolveQuotaProvider(
+  provider: string | undefined,
+  modelId: string | undefined,
+  prefixes: ProviderPrefixMap,
+): SupportedQuotaProvider | undefined {
+  const target = resolvePrefixTarget(provider, modelId, prefixes);
+  return target ? prefixTargetProvider(target) : undefined;
+}
+
+/**
+ * Resolve the host override configured for `modelId`'s longest matching
+ * prefix, or undefined when no host is configured (bare provider id or no
+ * match). Used to narrow multi-host Copilot quota windows to the host the
+ * active model targets.
+ */
+export function resolveQuotaProviderHost(
+  modelId: string | undefined,
+  prefixes: ProviderPrefixMap | undefined,
+): string | undefined {
+  const target = resolvePrefixTarget(undefined, modelId, prefixes);
+  return target ? prefixTargetHost(target) : undefined;
 }
 
 /** Convenience wrapper that reads the loaded config's prefix map. */
@@ -79,6 +122,28 @@ export function resolveActiveQuotaProvider(
     modelId,
     configLoader.getConfig().providerPrefixes,
   );
+}
+
+/** Convenience wrapper for the active model's configured host override. */
+export function resolveActiveQuotaProviderHost(
+  modelId: string | undefined,
+): string | undefined {
+  return resolveQuotaProviderHost(modelId, configLoader.getConfig().providerPrefixes);
+}
+
+/**
+ * Narrow `windows` to `host`, when the active provider is github-copilot and
+ * a host is given. Otherwise return the windows unchanged (preserves existing
+ * behavior for bare-string prefix configs and non-Copilot providers). Pure;
+ * the caller resolves the active host via {@link resolveActiveQuotaProviderHost}.
+ */
+export function filterWindowsForHost(
+  provider: SupportedQuotaProvider | undefined,
+  host: string | undefined,
+  windows: QuotaWindow[],
+): QuotaWindow[] {
+  if (provider !== "github-copilot" || !host) return windows;
+  return windows.filter((window) => window.host === host);
 }
 
 export function clearQuotaCache(provider?: SupportedQuotaProvider): void {

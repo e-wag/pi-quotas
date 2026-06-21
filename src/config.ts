@@ -13,7 +13,18 @@ import type { SupportedQuotaProvider } from "./types/quotas.js";
  * start of `model.id`; longest matching prefix wins. Empty by default —
  * configure routes in ~/.pi/agent/extensions/quotas.json.
  */
-export type ProviderPrefixMap = Record<string, SupportedQuotaProvider>;
+/**
+ * Prefix target: a bare provider id, or an object carrying an optional
+ * `host` override. The host override distinguishes multiple Copilot
+ * subscriptions served by one provider id (e.g. copilot-enterprise/ ->
+ * enterprise.ghe.com vs copilot-personal/ -> github.com) so quota widgets can
+ * narrow to the host the active model actually targets.
+ */
+export type ProviderPrefixTarget =
+  | SupportedQuotaProvider
+  | { provider: SupportedQuotaProvider; host?: string };
+
+export type ProviderPrefixMap = Record<string, ProviderPrefixTarget>;
 
 export type QuotasFeatureId =
   | "quotasCommand"

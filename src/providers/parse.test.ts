@@ -198,12 +198,24 @@ describe("parseGitHubCopilotUsage", () => {
     expect(windows).toHaveLength(1);
     expect(windows[0]).toMatchObject({
       provider: "github-copilot",
+      host: "company.ghe.com",
       label: "Copilot company.ghe.com",
       usedPercent: 20,
       usedValue: 60,
       limitValue: 300,
       nextAmount: "overage allowed",
     });
+  });
+
+  it("stamps the default host when none is passed", () => {
+    const windows = parseGitHubCopilotUsage({
+      quota_reset_date: "2026-05-01T00:00:00Z",
+      quota_snapshots: {
+        premium_interactions: { entitlement: 300, remaining: 240 },
+      },
+    });
+    expect(windows[0].host).toBe("github.com");
+    expect(windows[0].label).toBe("Copilot");
   });
 
   it("ignores free-tier chat and completions data", () => {

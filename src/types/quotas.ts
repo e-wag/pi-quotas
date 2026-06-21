@@ -18,6 +18,8 @@ export type QuotasResult =
 
 export interface QuotaWindow {
   provider: SupportedQuotaProvider;
+  /** Host this window was fetched from. Set for github-copilot multi-host quotas. */
+  host?: string;
   label: string;
   usedPercent: number;
   resetsAt: Date;
