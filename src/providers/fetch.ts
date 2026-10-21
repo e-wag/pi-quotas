@@ -49,12 +49,22 @@ function configuredCopilotTargets(): CopilotTarget[] | undefined {
   return targets;
 }
 
-function copilotTargetFromAuthStorage(authStorage: AuthStorage): CopilotTarget {
+/**
+ * Host of the Copilot subscription authenticated in pi's auth store: the
+ * credential's enterprise URL when present, else github.com. The built-in
+ * github-copilot provider carries no routing prefix, so its active host can
+ * only be resolved from here.
+ */
+export function activeCopilotHost(authStorage: AuthStorage): string {
   const credential = authStorage.get("github-copilot") as any;
   const host = typeof credential?.enterpriseUrl === "string"
     ? normalizeHost(credential.enterpriseUrl)
     : undefined;
-  return { host: host ?? DEFAULT_GITHUB_HOST };
+  return host ?? DEFAULT_GITHUB_HOST;
+}
+
+function copilotTargetFromAuthStorage(authStorage: AuthStorage): CopilotTarget {
+  return { host: activeCopilotHost(authStorage) };
 }
 
 /**

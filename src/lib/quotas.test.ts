@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  resolveCopilotHost,
   resolveQuotaProvider,
   resolveQuotaProviderHost,
   filterWindowsForHost,
@@ -99,6 +100,47 @@ describe("resolveQuotaProviderHost", () => {
     };
     expect(resolveQuotaProviderHost("a/b/model", mixed)).toBe("enterprise.ghe.com");
     expect(resolveQuotaProviderHost("a/c/model", mixed)).toBe("github.com");
+  });
+});
+
+describe("resolveCopilotHost", () => {
+  const multi: ProviderPrefixMap = {
+    "copilot-enterprise/": { provider: "github-copilot", host: "enterprise.ghe.com" },
+    "copilot-personal/": { provider: "github-copilot", host: "github.com" },
+  };
+
+  it("prefers the host configured for the model's routing prefix", () => {
+    const provider = resolveQuotaProvider("litellm", "copilot-enterprise/claude", multi);
+    expect(resolveCopilotHost(provider, "copilot-enterprise/claude", multi, "github.com")).toBe(
+      "enterprise.ghe.com",
+    );
+  });
+
+  it("falls back to the auth-store host for the built-in provider", () => {
+    expect(resolveCopilotHost("github-copilot", "claude-sonnet-5.5", multi, "enterprise.ghe.com")).toBe(
+      "enterprise.ghe.com",
+    );
+  });
+
+  it("falls back to github.com when the credential has no enterprise URL", () => {
+    expect(resolveCopilotHost("github-copilot", "claude-sonnet-5.5", multi, "github.com")).toBe(
+      "github.com",
+    );
+  });
+
+  it("returns undefined for non-copilot providers without a matching prefix", () => {
+    expect(resolveCopilotHost("anthropic", "claude-opus-4", multi, "github.com")).toBeUndefined();
+    expect(resolveCopilotHost(undefined, undefined, multi, "github.com")).toBeUndefined();
+  });
+
+  it("narrows the reported three-window footer to the active subscription", () => {
+    const windows: QuotaWindow[] = [
+      { provider: "github-copilot", host: "enterprise.ghe.com", label: "Copilot enterprise.ghe.com", usedPercent: 64, resetsAt: new Date(), windowSeconds: 0, usedValue: 19200, limitValue: 30000 },
+      { provider: "github-copilot", host: "github.com", label: "Copilot chat", usedPercent: 0, resetsAt: new Date(), windowSeconds: 0, usedValue: 0, limitValue: 200 },
+      { provider: "github-copilot", host: "github.com", label: "Copilot completions", usedPercent: 0, resetsAt: new Date(), windowSeconds: 0, usedValue: 0, limitValue: 2000 },
+    ];
+    const host = resolveCopilotHost("github-copilot", "claude-sonnet-5.5", multi, "enterprise.ghe.com");
+    expect(filterWindowsForHost("github-copilot", host, windows)).toHaveLength(1);
   });
 });
 

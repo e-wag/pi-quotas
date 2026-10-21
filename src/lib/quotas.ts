@@ -1,5 +1,5 @@
 import type { AuthStorage } from "@mariozechner/pi-coding-agent";
-import { PROVIDER_FETCHERS } from "../providers/fetch.js";
+import { PROVIDER_FETCHERS, activeCopilotHost } from "../providers/fetch.js";
 import { configLoader, type ProviderPrefixMap } from "../config.js";
 import type { QuotaWindow, QuotasResult, SupportedQuotaProvider } from "../types/quotas.js";
 import type { ProviderPrefixTarget } from "../config.js";
@@ -132,10 +132,46 @@ export function resolveActiveQuotaProviderHost(
 }
 
 /**
+ * Resolve the Copilot host whose windows belong to the active session.
+ * Prefers the host configured for `modelId`'s routing prefix; the built-in
+ * github-copilot provider carries no prefix, so it falls back to the host of
+ * the authenticated credential. Pure; callers pass the loaded prefix map and
+ * the auth-store host.
+ */
+export function resolveCopilotHost(
+  provider: SupportedQuotaProvider | undefined,
+  modelId: string | undefined,
+  prefixes: ProviderPrefixMap | undefined,
+  authHost: string | undefined,
+): string | undefined {
+  const configured = resolveQuotaProviderHost(modelId, prefixes);
+  if (configured) return configured;
+  return provider === "github-copilot" ? authHost : undefined;
+}
+
+/**
+ * Active Copilot host for the current session, reading the loaded config and
+ * pi's auth store. Without the auth-store fallback the footer and warnings
+ * would mix every configured subscription's windows.
+ */
+export function resolveActiveCopilotHost(
+  provider: SupportedQuotaProvider | undefined,
+  modelId: string | undefined,
+  authStorage: AuthStorage,
+): string | undefined {
+  return resolveCopilotHost(
+    provider,
+    modelId,
+    configLoader.getConfig().providerPrefixes,
+    activeCopilotHost(authStorage),
+  );
+}
+
+/**
  * Narrow `windows` to `host`, when the active provider is github-copilot and
  * a host is given. Otherwise return the windows unchanged (preserves existing
  * behavior for bare-string prefix configs and non-Copilot providers). Pure;
- * the caller resolves the active host via {@link resolveActiveQuotaProviderHost}.
+ * the caller resolves the active host via {@link resolveActiveCopilotHost}.
  */
 export function filterWindowsForHost(
   provider: SupportedQuotaProvider | undefined,

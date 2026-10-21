@@ -19,8 +19,8 @@ import {
   fetchProviderQuotas,
   filterWindowsForHost,
   isSupportedProvider,
+  resolveActiveCopilotHost,
   resolveActiveQuotaProvider,
-  resolveActiveQuotaProviderHost,
 } from "../../lib/quotas.js";
 import {
   assessWindow,
@@ -149,7 +149,11 @@ function createStatusRefresher() {
           ctx.ui.setStatus(EXTENSION_ID, ctx.ui.theme.fg("warning", "usage unavailable"));
           return;
         }
-        const host = resolveActiveQuotaProviderHost(ctx.model?.id);
+        const host = resolveActiveCopilotHost(
+          activeProvider,
+          ctx.model?.id,
+          ctx.modelRegistry.authStorage,
+        );
         const windows: WindowStatus[] = toStatusWindows(
           filterWindowsForHost(activeProvider, host, result.data.windows),
         );

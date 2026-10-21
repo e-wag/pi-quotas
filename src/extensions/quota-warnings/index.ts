@@ -6,7 +6,7 @@ import {
   type QuotasConfigUpdatedPayload,
   configLoader,
 } from "../../config.js";
-import { fetchProviderQuotas, filterWindowsForHost, isSupportedProvider, resolveActiveQuotaProvider, resolveActiveQuotaProviderHost } from "../../lib/quotas.js";
+import { fetchProviderQuotas, filterWindowsForHost, isSupportedProvider, resolveActiveCopilotHost, resolveActiveQuotaProvider } from "../../lib/quotas.js";
 import {
   assessWindow,
   formatTimeRemaining,
@@ -55,7 +55,7 @@ export default async function (pi: ExtensionAPI) {
     const result = await fetchProviderQuotas(ctx.modelRegistry.authStorage, provider);
     if (!result.success) return;
 
-    const host = resolveActiveQuotaProviderHost(ctx.model?.id);
+    const host = resolveActiveCopilotHost(provider, ctx.model?.id, ctx.modelRegistry.authStorage);
     const windows = filterWindowsForHost(provider, host, result.data.windows);
     const risky = windows
       .map((window) => ({ window, assessment: assessWindow(window) }))
