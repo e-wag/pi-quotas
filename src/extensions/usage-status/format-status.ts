@@ -66,6 +66,16 @@ function hasRealCounts(w: WindowStatus): boolean {
 }
 
 /**
+ * Short kind for a Copilot window, so the footer distinguishes the premium
+ * request pool from the free-tier chat and completions pools.
+ */
+function copilotKindShort(label: string): string {
+  if (label === "Copilot chat") return "chat";
+  if (label === "Copilot completions") return "comp";
+  return "premium";
+}
+
+/**
  * Format a single window for the footer status bar.
  *
  * - Colors both the label and value based on severity
@@ -76,10 +86,12 @@ function hasRealCounts(w: WindowStatus): boolean {
  */
 export function formatWindowStatus(theme: ThemeLike, w: WindowStatus): string {
   if (w.provider === "github-copilot" && hasRealCounts(w)) {
-    const remaining = Math.max(0, w.limitValue! - w.usedValue!);
-    const remainingPercent = Math.max(0, Math.min(100, Math.round(100 - w.usedPercent)));
+    const remaining = Math.max(0, Math.round(w.limitValue! - w.usedValue!));
     const color = getSeverityColor(w.severity);
-    return `${theme.fg(color, `Copilot ${remainingPercent}%`)}${theme.fg("dim", ` ${formatCompactNumber(remaining)}/`)}${theme.fg(color, formatCompactNumber(w.limitValue!))}`;
+    const labelColor = w.severity === "none" ? "dim" : color;
+    const label = theme.fg(labelColor, `Copilot ${copilotKindShort(w.label)}`);
+    const value = theme.fg(color, `${formatCompactNumber(remaining)}/${formatCompactNumber(w.limitValue!)}`);
+    return `${label} ${value}`;
   }
 
   const short = SHORT_LABELS[w.label] ?? w.label;

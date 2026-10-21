@@ -32,6 +32,42 @@ describe("formatWindowStatus", () => {
     expect(result).toContain("[success]");
   });
 
+  it("names the Copilot window kind and shows remaining/limit", () => {
+    const base: WindowStatus = {
+      provider: "github-copilot",
+      label: "Copilot enterprise.ghe.com",
+      usedPercent: 64,
+      severity: "none",
+      resetsAt: "2026-11-01T00:00:00Z",
+      limited: false,
+      usedValue: 19200,
+      limitValue: 30000,
+    };
+
+    expect(formatWindowStatus(theme, base)).toBe("[dim]Copilot premium[/dim] [success]10.8k/30.0k[/success]");
+    expect(formatWindowStatus(theme, { ...base, label: "Copilot chat", usedValue: 0, limitValue: 200 })).toBe(
+      "[dim]Copilot chat[/dim] [success]200/200[/success]",
+    );
+    expect(formatWindowStatus(theme, { ...base, label: "Copilot completions", usedValue: 0, limitValue: 2000 })).toBe(
+      "[dim]Copilot comp[/dim] [success]2.0k/2.0k[/success]",
+    );
+  });
+
+  it("colors the Copilot kind label when the window is at risk", () => {
+    const w: WindowStatus = {
+      provider: "github-copilot",
+      label: "Copilot chat",
+      usedPercent: 95,
+      severity: "critical",
+      resetsAt: "2026-11-01T00:00:00Z",
+      limited: false,
+      usedValue: 190,
+      limitValue: 200,
+    };
+
+    expect(formatWindowStatus(theme, w)).toBe("[error]Copilot chat[/error] [error]10/200[/error]");
+  });
+
   it("shows remaining % for percentage-only windows (Anthropic 5h)", () => {
     const w: WindowStatus = {
       label: "5h",
