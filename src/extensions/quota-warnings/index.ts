@@ -7,6 +7,7 @@ import {
   configLoader,
 } from "../../config.js";
 import { fetchProviderQuotas, filterWindowsForHost, isSupportedProvider, resolveActiveCopilotHost, resolveActiveQuotaProvider } from "../../lib/quotas.js";
+import { getQuotaAuthSource } from "../../lib/pi-auth.js";
 import {
   assessWindow,
   formatTimeRemaining,
@@ -52,10 +53,11 @@ export default async function (pi: ExtensionAPI) {
     if (onlyNew && now - lastFetchAt < MIN_FETCH_INTERVAL_MS) return;
     lastFetchAt = now;
 
-    const result = await fetchProviderQuotas(ctx.modelRegistry.authStorage, provider);
+    const authSource = getQuotaAuthSource(ctx.modelRegistry);
+    const result = await fetchProviderQuotas(authSource, provider);
     if (!result.success) return;
 
-    const host = resolveActiveCopilotHost(provider, ctx.model?.id, ctx.modelRegistry.authStorage);
+    const host = resolveActiveCopilotHost(provider, ctx.model?.id, authSource);
     const windows = filterWindowsForHost(provider, host, result.data.windows);
     const risky = windows
       .map((window) => ({ window, assessment: assessWindow(window) }))

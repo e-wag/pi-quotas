@@ -22,6 +22,7 @@ import {
   resolveActiveCopilotHost,
   resolveActiveQuotaProvider,
 } from "../../lib/quotas.js";
+import { getQuotaAuthSource } from "../../lib/pi-auth.js";
 import {
   assessWindow,
   formatTimeRemaining,
@@ -144,7 +145,8 @@ function createStatusRefresher() {
       }
       inFlight = true;
       try {
-        const result = await fetchProviderQuotas(ctx.modelRegistry.authStorage, activeProvider);
+        const authSource = getQuotaAuthSource(ctx.modelRegistry);
+        const result = await fetchProviderQuotas(authSource, activeProvider);
         if (!result.success) {
           ctx.ui.setStatus(EXTENSION_ID, ctx.ui.theme.fg("warning", "usage unavailable"));
           return;
@@ -152,7 +154,7 @@ function createStatusRefresher() {
         const host = resolveActiveCopilotHost(
           activeProvider,
           ctx.model?.id,
-          ctx.modelRegistry.authStorage,
+          authSource,
         );
         const windows: WindowStatus[] = toStatusWindows(
           filterWindowsForHost(activeProvider, host, result.data.windows),

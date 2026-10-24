@@ -1,6 +1,7 @@
-import { AuthStorage } from "@mariozechner/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { getQuotaAuthSource } from "../lib/pi-auth.js";
 import {
+  fetchAnthropicQuotas,
   fetchAnthropicQuotasWithToken,
   fetchCodexQuotasWithToken,
   fetchGitHubCopilotQuotas,
@@ -13,6 +14,39 @@ const originalFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = originalFetch;
   vi.restoreAllMocks();
+});
+
+describe("fetchAnthropicQuotas", () => {
+  it("uses the current ModelRegistry API key lookup", async () => {
+    const getApiKeyForProvider = vi.fn(async (provider: string) =>
+      provider === "anthropic" ? "token" : undefined,
+    );
+    const authSource = getQuotaAuthSource({ getApiKeyForProvider });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          five_hour: { utilization: 21, resets_at: "2026-04-22T18:30:00Z" },
+          seven_day: { utilization: 9, resets_at: "2026-04-25T08:30:00Z" },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await fetchAnthropicQuotas(authSource);
+
+    expect(getApiKeyForProvider).toHaveBeenCalledWith("anthropic");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(true);
+  });
+
+  it("returns a config failure if no auth source is available", async () => {
+    const result = await fetchAnthropicQuotas(undefined);
+
+    expect(result).toMatchObject({
+      success: false,
+      error: { kind: "config" },
+    });
+  });
 });
 
 describe("fetchAnthropicQuotasWithToken", () => {

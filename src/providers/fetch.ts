@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { AuthStorage } from "@mariozechner/pi-coding-agent";
+import type { QuotaAuthSource } from "../lib/pi-auth.js";
 import type { QuotasResult, SupportedQuotaProvider } from "../types/quotas.js";
 import { configLoader, copilotHostsFromPrefixes } from "../config.js";
 import {
@@ -34,6 +34,10 @@ function normalizeHost(value: string): string | undefined {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function configuredCopilotTargets(): CopilotTarget[] | undefined {
   const raw = process.env.PI_QUOTAS_COPILOT_HOSTS;
   if (!raw) return undefined;
@@ -50,33 +54,30 @@ function configuredCopilotTargets(): CopilotTarget[] | undefined {
 }
 
 /**
- * Host of the Copilot subscription authenticated in pi's auth store: the
- * credential's enterprise URL when present, else github.com. The built-in
- * github-copilot provider carries no routing prefix, so its active host can
- * only be resolved from here.
+ * Host of the Copilot subscription in older Pi AuthStorage credentials, when
+ * available. Current ModelRegistry instances do not expose credential details.
  */
-export function activeCopilotHost(authStorage: AuthStorage): string {
-  const credential = authStorage.get("github-copilot") as any;
-  const host = typeof credential?.enterpriseUrl === "string"
-    ? normalizeHost(credential.enterpriseUrl)
-    : undefined;
+export function activeCopilotHost(authSource?: QuotaAuthSource): string {
+  const credential = authSource?.get?.("github-copilot");
+  const enterpriseUrl = isRecord(credential) ? credential.enterpriseUrl : undefined;
+  const host = typeof enterpriseUrl === "string" ? normalizeHost(enterpriseUrl) : undefined;
   return host ?? DEFAULT_GITHUB_HOST;
 }
 
-function copilotTargetFromAuthStorage(authStorage: AuthStorage): CopilotTarget {
-  return { host: activeCopilotHost(authStorage) };
+function copilotTargetFromAuthSource(authSource?: QuotaAuthSource): CopilotTarget {
+  return { host: activeCopilotHost(authSource) };
 }
 
 /**
  * Build the full set of Copilot hosts to fetch when no explicit env override
  * (`PI_QUOTAS_COPILOT_HOSTS`) is set. Unions hosts configured in `quotas.json`
  * `providerPrefixes` (e.g. copilot-personal/ -> github.com,
- * copilot-enterprise/ -> ghe.host) with the legacy auth.json enterpriseUrl
+ * copilot-enterprise/ -> ghe.host) with the older Pi AuthStorage enterpriseUrl
  * default, so multi-host setups fetch every subscription the active model
  * might target. `filterWindowsForHost` narrows to the active model's host
  * afterward.
  */
-function copilotTargetsForAllHosts(authStorage: AuthStorage): CopilotTarget[] {
+function copilotTargetsForAllHosts(authSource?: QuotaAuthSource): CopilotTarget[] {
   const seen = new Set<string>();
   const targets: CopilotTarget[] = [];
   const add = (host: string | undefined): void => {
@@ -85,7 +86,7 @@ function copilotTargetsForAllHosts(authStorage: AuthStorage): CopilotTarget[] {
     targets.push({ host });
   };
   for (const host of copilotHostsFromPrefixes(configLoader.getConfig().providerPrefixes)) add(host);
-  add(copilotTargetFromAuthStorage(authStorage).host);
+  add(copilotTargetFromAuthSource(authSource).host);
   if (targets.length === 0) add(DEFAULT_GITHUB_HOST);
   return targets;
 }
@@ -183,19 +184,25 @@ function aggregateCopilotErrors(
 }
 
 async function providerAccessToken(
-  authStorage: AuthStorage,
+  authSource: QuotaAuthSource | undefined,
   provider: string,
 ): Promise<string | undefined> {
-  return authStorage.getApiKey(provider);
+  if (!authSource) return undefined;
+  if (typeof authSource.getApiKeyForProvider === "function") {
+    return authSource.getApiKeyForProvider(provider);
+  }
+  return authSource.getApiKey?.(provider);
 }
 
-function codexAccountId(authStorage: AuthStorage): string | undefined {
-  const credential = authStorage.get("openai-codex") as any;
-  if (typeof credential?.accountId === "string") return credential.accountId;
+function codexAccountId(authSource: QuotaAuthSource | undefined): string | undefined {
+  const credential = authSource?.get?.("openai-codex");
+  if (isRecord(credential) && typeof credential.accountId === "string") return credential.accountId;
   try {
     const authPath = join(homedir(), ".codex", "auth.json");
-    const data = JSON.parse(readFileSync(authPath, "utf8")) as any;
-    return data?.tokens?.account_id ?? data?.tokens?.accountId;
+    const data: unknown = JSON.parse(readFileSync(authPath, "utf8"));
+    if (!isRecord(data) || !isRecord(data.tokens)) return undefined;
+    const accountId = data.tokens.account_id ?? data.tokens.accountId;
+    return typeof accountId === "string" ? accountId : undefined;
   } catch {
     return undefined;
   }
@@ -361,12 +368,12 @@ async function tryGitHubUserEndpoint(
   );
 }
 
-function githubOAuthToken(authStorage: AuthStorage): string | undefined {
+function githubOAuthToken(authSource: QuotaAuthSource | undefined): string | undefined {
   // Pi's GitHub Copilot OAuth credential stores the GitHub OAuth token in
   // `refresh`; `access` is a Copilot proxy token (tid=...;proxy-ep=...) that
   // is valid for model calls but rejected by api.github.com quota endpoints.
-  const credential = authStorage.get("github-copilot") as any;
-  if (credential?.type !== "oauth") return undefined;
+  const credential = authSource?.get?.("github-copilot");
+  if (!isRecord(credential) || credential.type !== "oauth") return undefined;
   return typeof credential.refresh === "string" && credential.refresh.length > 0
     ? credential.refresh
     : undefined;
@@ -421,28 +428,29 @@ export async function fetchGitHubCopilotQuotasWithToken(
 }
 
 export async function fetchAnthropicQuotas(
-  authStorage: AuthStorage,
+  authSource: QuotaAuthSource | undefined,
   signal?: AbortSignal,
 ): Promise<QuotasResult> {
-  return fetchAnthropicQuotasWithToken(await providerAccessToken(authStorage, "anthropic"), signal);
+  return fetchAnthropicQuotasWithToken(await providerAccessToken(authSource, "anthropic"), signal);
 }
 
 export async function fetchCodexQuotas(
-  authStorage: AuthStorage,
+  authSource: QuotaAuthSource | undefined,
   signal?: AbortSignal,
 ): Promise<QuotasResult> {
+  const accessToken = await providerAccessToken(authSource, "openai-codex");
   return fetchCodexQuotasWithToken(
-    await providerAccessToken(authStorage, "openai-codex"),
-    codexAccountId(authStorage),
+    accessToken,
+    accessToken ? codexAccountId(authSource) : undefined,
     signal,
   );
 }
 
 export async function fetchGitHubCopilotQuotas(
-  authStorage: AuthStorage,
+  authSource: QuotaAuthSource | undefined,
   signal?: AbortSignal,
 ): Promise<QuotasResult> {
-  const targets = configuredCopilotTargets() ?? copilotTargetsForAllHosts(authStorage);
+  const targets = configuredCopilotTargets() ?? copilotTargetsForAllHosts(authSource);
   const results = await Promise.all(
     targets.map(async (target) => ({ host: target.host, result: await fetchCopilotUsageForTarget(target, signal) })),
   );
@@ -485,17 +493,17 @@ export async function fetchOpenRouterQuotasWithToken(
 }
 
 export async function fetchOpenRouterQuotas(
-  authStorage: AuthStorage,
+  authSource: QuotaAuthSource | undefined,
   signal?: AbortSignal,
 ): Promise<QuotasResult> {
   return fetchOpenRouterQuotasWithToken(
-    await providerAccessToken(authStorage, "openrouter"),
+    await providerAccessToken(authSource, "openrouter"),
     signal,
   );
 }
 
 export async function fetchSyntheticQuotas(
-  _authStorage: AuthStorage,
+  _authSource: QuotaAuthSource | undefined,
   signal?: AbortSignal,
 ): Promise<QuotasResult> {
   const apiKey = process.env.SYNTHETIC_API_KEY;

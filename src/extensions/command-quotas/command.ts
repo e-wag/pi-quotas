@@ -9,6 +9,7 @@ import {
   fetchProviderQuotas,
   SUPPORTED_PROVIDERS,
 } from "../../lib/quotas.js";
+import { getQuotaAuthSource } from "../../lib/pi-auth.js";
 import type { QuotasResult, SupportedQuotaProvider } from "../../types/quotas.js";
 import { QuotasComponent } from "./components/quotas-display.js";
 import { getProviderCommandInfo } from "./provider-commands.js";
@@ -73,7 +74,7 @@ export function registerQuotasCommands(pi: ExtensionAPI): void {
       }
       await openQuotaView(
         "Provider Quotas",
-        (force, signal) => fetchAllProviderQuotas(ctx.modelRegistry.authStorage, { force, signal }),
+        (force, signal) => fetchAllProviderQuotas(getQuotaAuthSource(ctx.modelRegistry), { force, signal }),
         ctx,
       );
     },
@@ -93,7 +94,7 @@ export function registerQuotasCommands(pi: ExtensionAPI): void {
           async (force, signal) => [
             {
               provider,
-              result: await fetchProviderQuotas(ctx.modelRegistry.authStorage, provider, { force, signal }),
+              result: await fetchProviderQuotas(getQuotaAuthSource(ctx.modelRegistry), provider, { force, signal }),
             },
           ],
           ctx,

@@ -101,19 +101,19 @@ Add a `providerPrefixes` map to `~/.pi/agent/extensions/quotas.json` (or per-pro
 
 Keys are matched against the start of the active model's id; the longest matching prefix wins. When the active provider is already a supported provider, it takes precedence over the prefix map. The map is empty by default, so nothing is routed unless you configure it.
 
-For the GitHub Copilot provider specifically, the quota host is read from the `enterpriseUrl` field of the `github-copilot` entry in `~/.pi/agent/auth.json` (defaults to `github.com`). To check a GitHub Enterprise subscription, set `enterpriseUrl` to your GHE host. The actual API call is made via the `gh` CLI, so no OAuth tokens need to be stored in the auth entry for the quota check to work. Alternatively, set the `PI_QUOTAS_COPILOT_HOSTS` environment variable to a comma-separated list of hosts, which takes precedence over the auth entry and lets you track multiple Copilot subscriptions at once.
+For the GitHub Copilot provider, older Pi versions that expose raw auth credentials read the quota host from the `enterpriseUrl` field of the `github-copilot` entry (default `github.com`). Current Pi versions do not expose that field through ModelRegistry; configure an Enterprise host on a `providerPrefixes` entry, for example `"my-copilot/": {"provider": "github-copilot", "host": "ghe.example.com"}`. The `PI_QUOTAS_COPILOT_HOSTS` environment variable overrides the set of hosts queried and can include a comma-separated list for multiple subscriptions. The API call uses the `gh` CLI.
 
 ## Credentials
 
-pi-quotas reads existing Pi auth entries from `~/.pi/agent/auth.json`:
+pi-quotas resolves provider API keys through Pi's model registry, with the older AuthStorage API used when available:
 
 - `anthropic` — Anthropic OAuth token
-- `openai-codex` — Codex access token (also reads `~/.codex/auth.json` for the account ID)
-- `github-copilot` — GitHub Copilot OAuth token (falls back to `gh auth token` if needed)
+- `openai-codex` — Codex access token; the account ID comes from legacy Pi auth metadata when available, otherwise `~/.codex/auth.json`
+- `github-copilot` — authenticated `gh` CLI (`gh api`)
 - `openrouter` — OpenRouter API key (Bearer token)
 - `synthetic` — Synthetic API key (set the `SYNTHETIC_API_KEY` environment variable)
 
-No additional setup is required - if Pi can use the provider, pi-quotas can check its quotas. For Synthetic, export `SYNTHETIC_API_KEY` in your shell or Pi environment.
+No additional API key setup is required when Pi exposes the provider credential. Codex quota checks also need an account ID from legacy Pi auth metadata or `~/.codex/auth.json`. For Synthetic, export `SYNTHETIC_API_KEY`; GitHub Copilot checks use the authenticated `gh` CLI.
 
 ## Requirements
 

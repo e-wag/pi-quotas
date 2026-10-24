@@ -1,4 +1,4 @@
-import type { AuthStorage } from "@mariozechner/pi-coding-agent";
+import type { QuotaAuthSource } from "./pi-auth.js";
 import { PROVIDER_FETCHERS, activeCopilotHost } from "../providers/fetch.js";
 import { configLoader, type ProviderPrefixMap } from "../config.js";
 import type { QuotaWindow, QuotasResult, SupportedQuotaProvider } from "../types/quotas.js";
@@ -151,19 +151,19 @@ export function resolveCopilotHost(
 
 /**
  * Active Copilot host for the current session, reading the loaded config and
- * pi's auth store. Without the auth-store fallback the footer and warnings
- * would mix every configured subscription's windows.
+ * credential details when the Pi version exposes them. Without this fallback
+ * the footer and warnings would mix configured subscriptions' windows.
  */
 export function resolveActiveCopilotHost(
   provider: SupportedQuotaProvider | undefined,
   modelId: string | undefined,
-  authStorage: AuthStorage,
+  authSource: QuotaAuthSource | undefined,
 ): string | undefined {
   return resolveCopilotHost(
     provider,
     modelId,
     configLoader.getConfig().providerPrefixes,
-    activeCopilotHost(authStorage),
+    activeCopilotHost(authSource),
   );
 }
 
@@ -188,7 +188,7 @@ export function clearQuotaCache(provider?: SupportedQuotaProvider): void {
 }
 
 export async function fetchProviderQuotas(
-  authStorage: AuthStorage,
+  authSource: QuotaAuthSource | undefined,
   provider: SupportedQuotaProvider,
   options?: { force?: boolean; signal?: AbortSignal },
 ): Promise<QuotasResult> {
@@ -201,7 +201,7 @@ export async function fetchProviderQuotas(
   }
   if (!options?.force && entry.inFlight) return entry.inFlight;
 
-  const promise = PROVIDER_FETCHERS[provider](authStorage, options?.signal)
+  const promise = PROVIDER_FETCHERS[provider](authSource, options?.signal)
     .then((result: QuotasResult) => {
       cache.set(provider, { result, fetchedAt: Date.now() });
       return result;
@@ -217,13 +217,13 @@ export async function fetchProviderQuotas(
 }
 
 export async function fetchAllProviderQuotas(
-  authStorage: AuthStorage,
+  authSource: QuotaAuthSource | undefined,
   options?: { force?: boolean; signal?: AbortSignal },
 ): Promise<Array<{ provider: SupportedQuotaProvider; result: QuotasResult }>> {
   return Promise.all(
     SUPPORTED_PROVIDERS.map(async (provider) => ({
       provider,
-      result: await fetchProviderQuotas(authStorage, provider, options),
+      result: await fetchProviderQuotas(authSource, provider, options),
     })),
   );
 }
